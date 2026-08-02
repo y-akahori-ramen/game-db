@@ -1,6 +1,5 @@
 import type { LogLevel, UeLogEntry } from '../types/index.ts';
 
-// Mirrors scripts/convert_ue_log.py so browser-parsed and Python-converted logs share a schema.
 const LOG_LINE_REGEX =
     /^(?:\[(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}:\d{3})\])?(?:\[\s*(\d+)\])?(?:([A-Za-z0-9_]+):\s*)?(?:(Fatal|Error|Warning|Display|Log|Verbose|VeryVerbose):\s*)?(.*)$/;
 

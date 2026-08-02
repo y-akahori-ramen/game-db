@@ -2,10 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as duckdb from '@duckdb/duckdb-wasm';
 import type { DuckDBStatus } from '../types';
 
-const PARQUET_FILES = [
-  'fps_metrics.parquet',
-  'memory_metrics.parquet',
-  'logs.parquet',
+const CSV_FILES = [
+  'fps_metrics.csv',
+  'memory_metrics.csv',
 ];
 
 /** Convert Arrow cell values (BigInt, etc.) to plain JS values. */
@@ -62,12 +61,12 @@ export function useDuckDB() {
     };
   }, []);
 
-  /** Fetch parquet files from public/sample_data and register them in DuckDB's virtual FS. */
-  const loadParquetFiles = useCallback(async () => {
+  /** Fetch CSV files from public/sample_data and register them in DuckDB's virtual FS. */
+  const loadCsvFiles = useCallback(async () => {
     const db = dbRef.current;
     if (!db) throw new Error('DuckDB is not initialized yet');
     await Promise.all(
-      PARQUET_FILES.map(async (name) => {
+      CSV_FILES.map(async (name) => {
         const res = await fetch(`${import.meta.env.BASE_URL}sample_data/${name}`);
         if (!res.ok) throw new Error(`Failed to fetch ${name}: ${res.status}`);
         const buf = new Uint8Array(await res.arrayBuffer());
@@ -101,25 +100,24 @@ export function useDuckDB() {
   );
 
   /**
-   * Convert an array of plain JS objects into a Parquet file inside DuckDB's virtual filesystem
-   * (via a throwaway staging table + COPY TO), so it can be queried the same way as the sample
-   * Parquet files, e.g. `FROM '${fileName}'`. The JS rows never live on beyond this call.
+   * Load an array of already-parsed plain JS objects directly into a real DuckDB table (replacing
+   * any existing table of the same name), so it can be queried as `FROM tableName`. No
+   * intermediate file round-trip: the rows are already structured, so encoding them to a file
+   * format and decoding them back on every subsequent query would be pure overhead.
    */
-  const loadRowsAsParquetFile = useCallback(
-    async (fileName: string, rows: Record<string, unknown>[]) => {
+  const loadRowsAsTable = useCallback(
+    async (tableName: string, rows: Record<string, unknown>[]) => {
       const db = dbRef.current;
       if (!db) throw new Error('DuckDB is not initialized yet');
-      const jsonFile = `${fileName}.staging.json`;
-      const stagingTable = `__staging_${fileName.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+      const jsonFile = `${tableName}.staging.json`;
       await db.registerFileText(jsonFile, JSON.stringify(rows));
       const conn = await db.connect();
       try {
-        await conn.query(`DROP TABLE IF EXISTS ${stagingTable}`);
-        await conn.insertJSONFromPath(jsonFile, { name: stagingTable });
-        await conn.query(`COPY ${stagingTable} TO '${fileName}' (FORMAT PARQUET)`);
-        await conn.query(`DROP TABLE ${stagingTable}`);
+        await conn.query(`DROP TABLE IF EXISTS ${tableName}`);
+        await conn.insertJSONFromPath(jsonFile, { name: tableName });
       } finally {
         await conn.close();
+        await db.dropFile(jsonFile);
       }
     },
     [],
@@ -128,8 +126,8 @@ export function useDuckDB() {
   return {
     status,
     error,
-    loadParquetFiles,
+    loadCsvFiles,
     executeQuery,
-    loadRowsAsParquetFile,
+    loadRowsAsTable,
   };
 }

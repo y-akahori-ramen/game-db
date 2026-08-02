@@ -6,12 +6,14 @@ import type { LogLevelFilter } from '../types';
 
 interface Props {
   executeQuery: <T>(sql: string) => Promise<T[]>;
-  loadRowsAsParquetFile: (fileName: string, rows: Record<string, unknown>[]) => Promise<void>;
-  dataLoaded: boolean;
+  loadRowsAsTable: (tableName: string, rows: Record<string, unknown>[]) => Promise<void>;
+  /** True once the sample UE log has been parsed and loaded into UE_LOG_TABLE. */
+  logsReady: boolean;
   dbReady: boolean;
 }
 
-const UE_PARQUET_FILE = 'ue_logs.parquet';
+/** All logs (sample or uploaded) are loaded into this same table/schema; see ueLogParser.ts. */
+export const UE_LOG_TABLE = 'ue_logs';
 const LEVELS: LogLevelFilter[] = ['ALL', 'INFO', 'WARN', 'ERROR', 'FATAL'];
 
 const LEVEL_STYLES: Record<string, string> = {
@@ -25,7 +27,6 @@ function escapeSql(value: string): string {
   return value.replace(/'/g, "''");
 }
 
-/** Unified row shape shown in the table, regardless of source (sample logs.parquet vs. an imported UE log). */
 interface DisplayLogEntry {
   frame: number | null;
   timestamp: string;
@@ -37,54 +38,44 @@ interface DisplayLogEntry {
 
 export default function LogTable({
   executeQuery,
-  loadRowsAsParquetFile,
-  dataLoaded,
+  loadRowsAsTable,
+  logsReady,
   dbReady,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [ueFileName, setUeFileName] = useState<string | null>(null);
-  const [ueLoaded, setUeLoaded] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [uploaded, setUploaded] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
-  const [ueEntryCount, setUeEntryCount] = useState(0);
+  const [uploadedEntryCount, setUploadedEntryCount] = useState(0);
 
   const [level, setLevel] = useState<LogLevelFilter>('ALL');
   const [keyword, setKeyword] = useState('');
   const [rows, setRows] = useState<DisplayLogEntry[]>([]);
   const [querying, setQuerying] = useState(false);
 
-  // Once a local UE log is imported it takes over the panel from the sample logs.parquet data.
-  const showingUeLog = ueLoaded;
-  const ready = showingUeLog || dataLoaded;
+  // An uploaded log overwrites UE_LOG_TABLE, but either way it's the same schema/query.
+  const ready = logsReady || uploaded;
 
   const runQuery = useCallback(async () => {
     setQuerying(true);
     try {
       const lv = escapeSql(level);
       const kw = escapeSql(keyword);
-      // Alias each source's columns to a common shape in SQL so no per-source JS mapping is needed.
-      const sql = showingUeLog
-        ? `
-          SELECT frame, COALESCE(timestamp_raw, '-') AS "timestamp", level, verbosity AS "badgeLabel", category, message
-          FROM '${UE_PARQUET_FILE}'
-          WHERE type = 'log'
-            AND (level = '${lv}' OR '${lv}' = 'ALL')
-            AND message LIKE '%${kw}%'
-          ORDER BY line_number ASC
-          LIMIT 2000;
-        `
-        : `
-          SELECT NULL::INTEGER AS "frame", printf('%.3f', timestamp) AS "timestamp", level, level AS "badgeLabel", category, message
-          FROM 'logs.parquet'
-          WHERE (level = '${lv}' OR '${lv}' = 'ALL')
-            AND message LIKE '%${kw}%'
-          ORDER BY timestamp ASC;
-        `;
+      const sql = `
+        SELECT frame, COALESCE(timestamp_raw, '-') AS "timestamp", level, verbosity AS "badgeLabel", category, message
+        FROM ${UE_LOG_TABLE}
+        WHERE type = 'log'
+          AND (level = '${lv}' OR '${lv}' = 'ALL')
+          AND message LIKE '%${kw}%'
+        ORDER BY line_number ASC
+        LIMIT 2000;
+      `;
       setRows(await executeQuery<DisplayLogEntry>(sql));
     } finally {
       setQuerying(false);
     }
-  }, [executeQuery, level, keyword, showingUeLog]);
+  }, [executeQuery, level, keyword]);
 
   useEffect(() => {
     if (!ready) return;
@@ -102,18 +93,17 @@ export default function LogTable({
       try {
         const text = await file.text();
         const entries = parseUeLogText(text);
-        // Convert straight to Parquet on load; queries below read that file, never the raw JS rows.
-        await loadRowsAsParquetFile(UE_PARQUET_FILE, entries as unknown as Record<string, unknown>[]);
-        setUeFileName(file.name);
-        setUeEntryCount(entries.length);
-        setUeLoaded(true);
+        await loadRowsAsTable(UE_LOG_TABLE, entries as unknown as Record<string, unknown>[]);
+        setUploadedFileName(file.name);
+        setUploadedEntryCount(entries.length);
+        setUploaded(true);
       } catch (err) {
         setParseError(err instanceof Error ? err.message : String(err));
       } finally {
         setParsing(false);
       }
     },
-    [loadRowsAsParquetFile],
+    [loadRowsAsTable],
   );
 
   return (
@@ -134,9 +124,9 @@ export default function LogTable({
           {parsing ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16} />}
           {parsing ? '解析中...' : 'ローカルのUEログを開く'}
         </button>
-        {showingUeLog && ueFileName && (
+        {uploaded && uploadedFileName && (
           <span className="text-xs text-slate-500">
-            {ueFileName} ({ueEntryCount.toLocaleString()} 行)
+            {uploadedFileName} ({uploadedEntryCount.toLocaleString()} 行)
           </span>
         )}
       </div>
@@ -180,8 +170,8 @@ export default function LogTable({
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-slate-900">
             <tr className="text-left text-slate-400 border-b border-slate-800">
-              {showingUeLog && <th className="px-3 py-2 w-16 font-medium">Frame</th>}
-              <th className="px-3 py-2 w-32 font-medium">{showingUeLog ? 'Timestamp' : 'Time (s)'}</th>
+              <th className="px-3 py-2 w-16 font-medium">Frame</th>
+              <th className="px-3 py-2 w-32 font-medium">Timestamp</th>
               <th className="px-3 py-2 w-20 font-medium">Level</th>
               <th className="px-3 py-2 w-28 font-medium">Category</th>
               <th className="px-3 py-2 font-medium">Message</th>
@@ -193,9 +183,7 @@ export default function LogTable({
                 key={i}
                 className="border-b border-slate-800/60 hover:bg-slate-800/40"
               >
-                {showingUeLog && (
-                  <td className="px-3 py-1.5 text-slate-400 tabular-nums">{row.frame ?? '-'}</td>
-                )}
+                <td className="px-3 py-1.5 text-slate-400 tabular-nums">{row.frame ?? '-'}</td>
                 <td className="px-3 py-1.5 text-slate-400 tabular-nums">{row.timestamp}</td>
                 <td className="px-3 py-1.5">
                   <span
@@ -210,10 +198,7 @@ export default function LogTable({
             ))}
             {rows.length === 0 && (
               <tr>
-                <td
-                  colSpan={showingUeLog ? 5 : 4}
-                  className="px-3 py-6 text-center text-slate-500"
-                >
+                <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
                   {ready ? 'No logs match the filter.' : 'Load sample data or open a UE log to view logs.'}
                 </td>
               </tr>

@@ -15,28 +15,22 @@ npm run preview  # preview built app
 
 There is no test suite.
 
-Regenerating sample data (Parquet files in `public/sample_data/`) uses Python via uv — never pip or plain python. The script uses PEP 723 inline dependencies:
+Regenerating sample data (CSV files in `public/sample_data/`) uses Python via uv — never pip or plain python. The script uses PEP 723 inline dependencies:
 
 ```sh
 uv run scripts/generate_sample_data.py
-```
-
-Converting a real Unreal Engine `.log` file to Parquet runs directly on Node.js (v22.6+, no ts-node/tsx needed) via `scripts/convert_ue_log.ts`:
-
-```sh
-npm run convert-ue-log -- path/to/GameName.log [-o output.parquet]
 ```
 
 ## Architecture
 
 Everything runs in the browser; there is no backend.
 
-- **DuckDB-WASM is the data layer.** `src/hooks/useDuckDB.ts` owns the entire DB lifecycle: it lazily instantiates DuckDB-WASM (bundle fetched from jsDelivr via a Blob worker), fetches the Parquet files from `public/sample_data/`, and registers them into DuckDB's virtual filesystem via `registerFileBuffer`.
-- Components query Parquet files directly with SQL, referencing registered file names as table names, e.g. `SELECT ... FROM 'fps_metrics.parquet'`.
-- Data flow: `App.tsx` calls `loadParquetFiles()` + `executeQuery<T>()` from `useDuckDB`, holds results in state, and passes them down. `LogTable` instead receives `executeQuery` as a prop and runs its own filtered queries on `'logs.parquet'`.
+- **DuckDB-WASM is the data layer.** `src/hooks/useDuckDB.ts` owns the entire DB lifecycle: it lazily instantiates DuckDB-WASM (bundle fetched from jsDelivr via a Blob worker), fetches the CSV files from `public/sample_data/`, and registers them into DuckDB's virtual filesystem via `registerFileBuffer`.
+- Components query CSV files directly with SQL, referencing registered file names as table names, e.g. `SELECT ... FROM 'fps_metrics.csv'`. No Parquet anywhere in this project — FPS/memory/log data are all handled in the raw-ish form UE itself outputs (CSV / plain text), which is simpler than adding a columnar conversion step.
+- Data flow: `App.tsx` calls `loadCsvFiles()` + `executeQuery<T>()` from `useDuckDB`, holds results in state, and passes them down. `LogTable` instead receives `executeQuery` as a prop and runs its own filtered queries on the `ue_logs` table.
 - Charts use ECharts via `echarts-for-react` (`FpsChart`, `MemoryChart`); icons are `lucide-react`; styling is Tailwind CSS v4 (via `@tailwindcss/vite` plugin — no tailwind.config file).
-- Shared TypeScript interfaces (`FpsMetric`, `MemoryMetric`, `LogEntry`, etc.) live in `src/types/index.ts` and must match the Parquet schemas produced by `scripts/generate_sample_data.py`.
-- UE log parsing lives in a single place, `src/utils/ueLogParser.ts`, used both by the browser (`UeLogViewer` opening a local `.log` file, parsed client-side and loaded into DuckDB via `loadRowsAsTable`) and by `scripts/convert_ue_log.ts` (imported directly, run under Node). Don't reimplement this parser elsewhere — keep it framework-agnostic (no DOM/browser-only APIs) so both call sites keep working.
+- Shared TypeScript interfaces (`FpsMetric`, `MemoryMetric`, `LogEntry`, etc.) live in `src/types/index.ts` and must match the CSV schemas produced by `scripts/generate_sample_data.py`.
+- UE log parsing lives in a single place, `src/utils/ueLogParser.ts`, used by the browser (`LogTable`'s "open local UE log" flow, parsed client-side and loaded into DuckDB via `loadRowsAsTable`). Don't reimplement this parser elsewhere — keep it framework-agnostic (no DOM/browser-only APIs).
 
 ## Conventions
 

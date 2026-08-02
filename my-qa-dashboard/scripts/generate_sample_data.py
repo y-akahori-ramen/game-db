@@ -2,11 +2,16 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #     "pandas",
-#     "pyarrow",
 #     "numpy",
 # ]
 # ///
-"""Generate dummy QA metrics/log Parquet files into public/sample_data/.
+"""Generate dummy QA metrics CSV files into public/sample_data/.
+
+CSV (not Parquet) matches how UE itself outputs FPS/memory stats and keeps
+the format consistent with the log data, which is also handled as raw text.
+
+Log sample data is public/sample_data/samplelog.log (a real UE log file), not
+generated here.
 
 Run with: uv run scripts/generate_sample_data.py
 """
@@ -69,130 +74,18 @@ def generate_memory() -> pd.DataFrame:
     )
 
 
-MESSAGES = {
-    "INFO": {
-        "Graphics": [
-            "Shader cache hit for material '{m}'",
-            "Render target resized to {w}x{h}",
-            "LOD level switched to {lod} for mesh '{m}'",
-        ],
-        "Network": [
-            "Heartbeat OK (rtt={ms}ms)",
-            "Session sync completed in {ms}ms",
-            "Packet batch sent ({n} packets)",
-        ],
-        "Physics": [
-            "Broadphase pairs: {n}",
-            "Ragdoll activated for entity {e}",
-            "Collision island rebuilt ({n} bodies)",
-        ],
-        "Script": [
-            "Quest state updated: {m}",
-            "Coroutine '{m}' completed",
-            "Event '{m}' dispatched to {n} listeners",
-        ],
-    },
-    "WARN": {
-        "Graphics": [
-            "Texture streaming budget exceeded by {n}MB",
-            "Shader compilation stall ({ms}ms) for '{m}'",
-            "Draw call count high: {n}",
-        ],
-        "Network": [
-            "High latency detected (rtt={ms}ms)",
-            "Packet loss {n}% on channel {e}",
-            "Retrying RPC '{m}' (attempt {lod})",
-        ],
-        "Physics": [
-            "Solver iteration cap reached ({n} bodies)",
-            "Penetration depth exceeds threshold for entity {e}",
-        ],
-        "Script": [
-            "Deprecated API '{m}' called",
-            "Script frame budget exceeded ({ms}ms)",
-        ],
-    },
-    "ERROR": {
-        "Graphics": [
-            "Failed to compile shader '{m}': invalid semantic",
-            "GPU fence timeout after {ms}ms",
-            "Texture '{m}' failed to load: corrupt mip chain",
-        ],
-        "Network": [
-            "Connection reset by peer (session {e})",
-            "RPC '{m}' failed: timeout after {ms}ms",
-        ],
-        "Physics": [
-            "NaN detected in rigid body velocity (entity {e})",
-            "Convex hull generation failed for mesh '{m}'",
-        ],
-        "Script": [
-            "NullReferenceException in '{m}' at line {n}",
-            "Unhandled exception in coroutine '{m}'",
-        ],
-    },
-    "FATAL": {
-        "Graphics": ["Device removed: DXGI_ERROR_DEVICE_HUNG"],
-        "Network": ["Session irrecoverably desynced, aborting test run"],
-        "Physics": ["Physics world corrupted, cannot continue"],
-        "Script": ["Script VM crashed: stack overflow in '{m}'"],
-    },
-}
-
-NAMES = [
-    "env_rock_large",
-    "chr_hero_body",
-    "fx_explosion",
-    "ui_hud_main",
-    "npc_guard_ai",
-    "water_surface",
-    "terrain_patch_12",
-    "boss_dragon",
-]
-
-
-def fill(template: str) -> str:
-    return template.format(
-        m=random.choice(NAMES),
-        w=random.choice([1280, 1920, 2560, 3840]),
-        h=random.choice([720, 1080, 1440, 2160]),
-        lod=random.randint(0, 4),
-        ms=random.randint(5, 900),
-        n=random.randint(1, 500),
-        e=random.randint(100, 9999),
-    )
-
-
-def generate_logs(count: int = 1000) -> pd.DataFrame:
-    levels = rng.choice(
-        ["INFO", "WARN", "ERROR", "FATAL"], size=count, p=[0.70, 0.18, 0.11, 0.01]
-    )
-    rows = []
-    for level in levels:
-        category = random.choice(list(MESSAGES[level].keys()))
-        message = fill(random.choice(MESSAGES[level][category]))
-        rows.append(
-            {
-                "timestamp": round(random.uniform(0, DURATION_SEC), 3),
-                "level": level,
-                "category": category,
-                "message": message,
-            }
-        )
-    df = pd.DataFrame(rows).sort_values("timestamp").reset_index(drop=True)
-    return df
-
-
 def main() -> None:
+    # Log sample data is the real UE log at public/sample_data/samplelog.log, parsed at
+    # runtime by the same pipeline as user-uploaded logs (see src/utils/ueLogParser.ts)
+    # rather than generated here.
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     datasets = {
-        "fps_metrics.parquet": generate_fps(),
-        "memory_metrics.parquet": generate_memory(),
-        "logs.parquet": generate_logs(),
+        "fps_metrics.csv": generate_fps(),
+        "memory_metrics.csv": generate_memory(),
     }
     for name, df in datasets.items():
         path = OUT_DIR / name
-        df.to_parquet(path, index=False)
+        df.to_csv(path, index=False)
         print(f"wrote {path} ({len(df)} rows)")
 
 

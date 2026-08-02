@@ -11,11 +11,12 @@ import {
 import { useDuckDB } from './hooks/useDuckDB';
 import FpsChart from './components/FpsChart';
 import MemoryChart from './components/MemoryChart';
-import LogTable from './components/LogTable';
+import LogTable, { UE_LOG_TABLE } from './components/LogTable';
+import { parseUeLogText } from './utils/ueLogParser';
 import type { FpsMetric, MemoryMetric } from './types';
 
 export default function App() {
-  const { status, error, loadParquetFiles, executeQuery, loadRowsAsParquetFile } = useDuckDB();
+  const { status, error, loadCsvFiles, executeQuery, loadRowsAsTable } = useDuckDB();
   const [fpsData, setFpsData] = useState<FpsMetric[]>([]);
   const [memoryData, setMemoryData] = useState<MemoryMetric[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -26,15 +27,25 @@ export default function App() {
     setLoadingData(true);
     setLoadError(null);
     try {
-      await loadParquetFiles();
-      const [fps, memory] = await Promise.all([
+      await loadCsvFiles();
+      const [fps, memory, logText] = await Promise.all([
         executeQuery<FpsMetric>(
-          "SELECT timestamp, fps, frame_time_ms FROM 'fps_metrics.parquet' ORDER BY timestamp",
+          "SELECT timestamp, fps, frame_time_ms FROM 'fps_metrics.csv' ORDER BY timestamp",
         ),
         executeQuery<MemoryMetric>(
-          "SELECT timestamp, vram_mb, ram_mb, heap_mb FROM 'memory_metrics.parquet' ORDER BY timestamp",
+          "SELECT timestamp, vram_mb, ram_mb, heap_mb FROM 'memory_metrics.csv' ORDER BY timestamp",
         ),
+        fetch(`${import.meta.env.BASE_URL}sample_data/samplelog.log`).then((res) => {
+          if (!res.ok) throw new Error(`Failed to fetch samplelog.log: ${res.status}`);
+          return res.text();
+        }),
       ]);
+      // Sample logs are a real UE log file, parsed through the same text -> table pipeline
+      // as a user-uploaded log so both are queried identically.
+      await loadRowsAsTable(
+        UE_LOG_TABLE,
+        parseUeLogText(logText) as unknown as Record<string, unknown>[],
+      );
       setFpsData(fps);
       setMemoryData(memory);
       setDataLoaded(true);
@@ -43,7 +54,7 @@ export default function App() {
     } finally {
       setLoadingData(false);
     }
-  }, [loadParquetFiles, executeQuery]);
+  }, [loadCsvFiles, executeQuery, loadRowsAsTable]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -127,8 +138,8 @@ export default function App() {
           </h2>
           <LogTable
             executeQuery={executeQuery}
-            loadRowsAsParquetFile={loadRowsAsParquetFile}
-            dataLoaded={dataLoaded}
+            loadRowsAsTable={loadRowsAsTable}
+            logsReady={dataLoaded}
             dbReady={status === 'ready'}
           />
         </section>
