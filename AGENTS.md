@@ -21,6 +21,12 @@ Regenerating sample data (Parquet files in `public/sample_data/`) uses Python vi
 uv run scripts/generate_sample_data.py
 ```
 
+Converting a real Unreal Engine `.log` file to Parquet runs directly on Node.js (v22.6+, no ts-node/tsx needed) via `scripts/convert_ue_log.ts`:
+
+```sh
+npm run convert-ue-log -- path/to/GameName.log [-o output.parquet]
+```
+
 ## Architecture
 
 Everything runs in the browser; there is no backend.
@@ -30,6 +36,7 @@ Everything runs in the browser; there is no backend.
 - Data flow: `App.tsx` calls `loadParquetFiles()` + `executeQuery<T>()` from `useDuckDB`, holds results in state, and passes them down. `LogTable` instead receives `executeQuery` as a prop and runs its own filtered queries on `'logs.parquet'`.
 - Charts use ECharts via `echarts-for-react` (`FpsChart`, `MemoryChart`); icons are `lucide-react`; styling is Tailwind CSS v4 (via `@tailwindcss/vite` plugin — no tailwind.config file).
 - Shared TypeScript interfaces (`FpsMetric`, `MemoryMetric`, `LogEntry`, etc.) live in `src/types/index.ts` and must match the Parquet schemas produced by `scripts/generate_sample_data.py`.
+- UE log parsing lives in a single place, `src/utils/ueLogParser.ts`, used both by the browser (`UeLogViewer` opening a local `.log` file, parsed client-side and loaded into DuckDB via `loadRowsAsTable`) and by `scripts/convert_ue_log.ts` (imported directly, run under Node). Don't reimplement this parser elsewhere — keep it framework-agnostic (no DOM/browser-only APIs) so both call sites keep working.
 
 ## Conventions
 

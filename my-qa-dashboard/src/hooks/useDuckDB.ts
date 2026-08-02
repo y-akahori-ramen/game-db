@@ -100,5 +100,36 @@ export function useDuckDB() {
     [],
   );
 
-  return { status, error, loadParquetFiles, executeQuery };
+  /**
+   * Convert an array of plain JS objects into a Parquet file inside DuckDB's virtual filesystem
+   * (via a throwaway staging table + COPY TO), so it can be queried the same way as the sample
+   * Parquet files, e.g. `FROM '${fileName}'`. The JS rows never live on beyond this call.
+   */
+  const loadRowsAsParquetFile = useCallback(
+    async (fileName: string, rows: Record<string, unknown>[]) => {
+      const db = dbRef.current;
+      if (!db) throw new Error('DuckDB is not initialized yet');
+      const jsonFile = `${fileName}.staging.json`;
+      const stagingTable = `__staging_${fileName.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+      await db.registerFileText(jsonFile, JSON.stringify(rows));
+      const conn = await db.connect();
+      try {
+        await conn.query(`DROP TABLE IF EXISTS ${stagingTable}`);
+        await conn.insertJSONFromPath(jsonFile, { name: stagingTable });
+        await conn.query(`COPY ${stagingTable} TO '${fileName}' (FORMAT PARQUET)`);
+        await conn.query(`DROP TABLE ${stagingTable}`);
+      } finally {
+        await conn.close();
+      }
+    },
+    [],
+  );
+
+  return {
+    status,
+    error,
+    loadParquetFiles,
+    executeQuery,
+    loadRowsAsParquetFile,
+  };
 }

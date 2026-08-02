@@ -22,3 +22,18 @@ export interface LogEntry {
 }
 
 export type DuckDBStatus = 'loading' | 'ready' | 'error';
+
+/** A single parsed entry from an Unreal Engine log file (see ../utils/ueLogParser). */
+export interface UeLogEntry {
+  line_number: number;
+  type: 'meta' | 'log';
+  phase: 'init' | 'execution' | null;
+  timestamp_raw: string | null;
+  /** Elapsed seconds since the first timestamped entry in the log. */
+  timestamp: number | null;
+  frame: number | null;
+  category: string;
+  verbosity: string;
+  level: LogLevel;
+  message: string;
+}

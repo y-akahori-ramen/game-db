@@ -15,7 +15,7 @@ import LogTable from './components/LogTable';
 import type { FpsMetric, MemoryMetric } from './types';
 
 export default function App() {
-  const { status, error, loadParquetFiles, executeQuery } = useDuckDB();
+  const { status, error, loadParquetFiles, executeQuery, loadRowsAsParquetFile } = useDuckDB();
   const [fpsData, setFpsData] = useState<FpsMetric[]>([]);
   const [memoryData, setMemoryData] = useState<MemoryMetric[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -125,7 +125,12 @@ export default function App() {
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-300">
             <ScrollText size={16} className="text-yellow-400" /> Log Analyzer
           </h2>
-          <LogTable executeQuery={executeQuery} dataLoaded={dataLoaded} />
+          <LogTable
+            executeQuery={executeQuery}
+            loadRowsAsParquetFile={loadRowsAsParquetFile}
+            dataLoaded={dataLoaded}
+            dbReady={status === 'ready'}
+          />
         </section>
       </main>
     </div>
