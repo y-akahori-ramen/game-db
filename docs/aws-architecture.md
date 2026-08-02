@@ -23,14 +23,15 @@ graph LR
     end
 
     subgraph Edge[グローバル]
-        WAF[AWS WAF<br/>IPセットルール 任意ON/OFF]
+        WAF[AWS WAF CLOUDFRONTスコープ<br/>IPセットルール 任意ON/OFF]
         CF[CloudFront 1ディストリビューション]
     end
 
     subgraph Region[ap-northeast-1]
         S3App[S3: SPA静的アセット]
         S3Data[S3: データバケット<br/>manifest / fps / memory / log / 動画]
-        APIGW[API Gateway HTTP API<br/>Cognito JWTオーソライザー]
+        WAFR[AWS WAF リージョナル<br/>同一IPリストを展開]
+        APIGW[API Gateway REST API<br/>Cognitoオーソライザー]
         L1[Lambda: 検索API]
         L2[Lambda: 署名Cookie発行]
         AT[Annotation Table<br/>S3 Tables / Iceberg]
@@ -42,6 +43,7 @@ graph LR
     CF -->|/ …default| S3App
     CF -->|/data/*  署名Cookie必須| S3Data
     CF -->|/api/*| APIGW
+    WAFR -.->|ステージにアタッチ| APIGW
     APIGW --> L1 --> Athena --> AT
     S3Data -.->|非同期反映<br/>metadata.s3 サービスロール| AT
     APIGW --> L2
@@ -53,7 +55,7 @@ graph LR
 
 ### 1. 認証 — Cognito User Pool + CloudFront署名Cookie
 
-- SPAのログインは Cognito（OIDC / Hosted UI）。APIは API Gateway の JWTオーソライザーで保護。
+- SPAのログインは Cognito（OIDC / Hosted UI）。APIは API Gateway（REST API）の **Cognitoオーソライザー** で保護。
 - データファイル（特に動画）はAPI経由にせず CloudFront から直接配信するため、ログイン後に
   `/api/auth/cookie` を叩いて **CloudFront署名Cookie** を発行し、以降の `/data/*` GETはCookieで認可。
 - 署名URLでなくCookieにする理由: 1つの実行で fps/memory/log/動画と複数ファイルを引くこと、
@@ -64,11 +66,21 @@ graph LR
   - `/data/*` → データバケット（署名Cookie必須）
   - `/api/*` → API Gateway
 
-### 2. IPブロック — AWS WAF（CloudFrontにアタッチ）
+### 2. IPブロック — AWS WAF（CloudFront + REST APIステージの2箇所）
 
 - IPセット + ブロックルールを用意し、普段は空 or ルール無効。
 - 必要になったらIPセットにIPを追加するだけで即時反映。
-- 全トラフィックがCloudFront経由なのでWAF 1箇所で完結。
+- Web ACLは2箇所にアタッチする:
+  - **CLOUDFRONTスコープ**（us-east-1）: ディストリビューションにアタッチ。SPA / `/data/*` / `/api/*` の通常経路をカバー。
+  - **REGIONALスコープ**（ap-northeast-1）: REST APIステージに直接アタッチ。CloudFrontを介さない
+    `execute-api` デフォルトエンドポイントへの直アクセスもIPブロック対象にする（直URLでのWAF迂回対策）。
+- WAFのIPセットは **スコープをまたいで共有できない** ため、ブロックIPリストはCDKで一元定義し、
+  両スコープのIPセットへ展開する（どちらも追加は即時反映）。
+- このため API Gateway は **REST API（リージョナルエンドポイント）** を採用する。
+  WAFをステージに直接アタッチできるのはREST APIのみ（HTTP API不可）。認証はHTTP APIの
+  JWTオーソライザーの代わりにCognitoオーソライザーを使う。
+- 拡張: Cognito User Pool（Hosted UI）にもリージョナルWeb ACLを関連付ければ、ログイン入口も
+  同じIPブロックでカバーできる。
 
 ### 3. データ格納レイアウト — テスト結果ファイル = マニフェスト方式
 
@@ -162,6 +174,8 @@ WHERE name = 'run-summary'
   DynamoDB同期基盤（EventBridge + Lambda + テーブル）を丸ごと省略できるのが利点。
   ミリ秒応答が必要になった時点で初めてDynamoDBキャッシュを検討する。
 - CloudFront/WAFはグローバルサービスだが、**CloudFront用ACM証明書は us-east-1** に必要。
+- REST APIはHTTP APIよりリクエスト単価が高いが、WAF直アタッチ（IPブロックの直URL迂回対策）を
+  優先して採用。リクエスト数規模的にコスト差は誤差。
 - 動画・ログはライフサイクルルールで一定期間後に S3 Glacier Instant Retrieval 等へ移行し、
   ストレージコストを抑える。
 - IaCはCDK等でスタック化する想定（上記セットアップ一式を含める）。
