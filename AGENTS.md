@@ -15,7 +15,7 @@ npm run preview  # preview built app
 
 There is no test suite.
 
-Regenerating sample data (CSV files in `public/sample_data/`) uses Python via uv — never pip or plain python. The script uses PEP 723 inline dependencies:
+Regenerating sample data (per-run CSV/JSON under `public/sample_data/run-XXX/` plus the mock search index `public/mock_data/runs.json`) uses Python via uv — never pip or plain python. The script uses PEP 723 inline dependencies:
 
 ```sh
 uv run scripts/generate_sample_data.py
@@ -25,11 +25,12 @@ uv run scripts/generate_sample_data.py
 
 Everything runs in the browser; there is no backend.
 
-- **DuckDB-WASM is the data layer.** `src/hooks/useDuckDB.ts` owns the entire DB lifecycle: it lazily instantiates DuckDB-WASM (bundle fetched from jsDelivr via a Blob worker), fetches the CSV files from `public/sample_data/`, and registers them into DuckDB's virtual filesystem via `registerFileBuffer`.
-- Components query CSV files directly with SQL, referencing registered file names as table names, e.g. `SELECT ... FROM 'fps_metrics.csv'`. No Parquet anywhere in this project — FPS/memory/log data are all handled in the raw-ish form UE itself outputs (CSV / plain text), which is simpler than adding a columnar conversion step.
-- Data flow: `App.tsx` calls `loadCsvFiles()` + `executeQuery<T>()` from `useDuckDB`, holds results in state, and passes them down. `LogTable` instead receives `executeQuery` as a prop and runs its own filtered queries on the `ue_logs` table.
+- **DuckDB-WASM is the data layer.** `src/hooks/useDuckDB.ts` owns the entire DB lifecycle: it lazily instantiates DuckDB-WASM (bundle fetched from jsDelivr via a Blob worker) and registers fetched/uploaded data files into DuckDB's virtual filesystem via `registerFileBuffer` (`loadRemoteFile` for URLs, `loadLocalCsvFile` for local uploads).
+- Components query registered files directly with SQL via `read_csv_auto('...')` / `read_json_auto('...')` chosen by file extension (see `fromClause` in `App.tsx`). No Parquet anywhere in this project — FPS/memory/log data are all handled in the raw-ish form UE itself outputs (CSV / JSON / plain text), which is simpler than adding a columnar conversion step.
+- **Search-first flow.** `App.tsx` starts on `SearchPage` (test run search). `src/services/` abstracts the search backend: `SearchService.ts` defines `SearchFilter` / `TestRunSummary` / the `SearchService` interface; `MockSearchService` fetches `public/mock_data/runs.json` and filters client-side; `ApiSearchService` is an unimplemented stub for the future S3/Athena backend. `services/index.ts` picks the implementation from `VITE_USE_MOCK` (mock unless set to `'false'`).
+- Opening a run hands its `TestRunSummary` (data URLs) to the dashboard: `App.tsx` registers the run's fps/memory files via `loadRemoteFile`, queries them with `executeQuery<T>()`, holds results in state, and passes them down. `LogTable` instead receives `executeQuery` as a prop and runs its own filtered queries on the `ue_logs` table.
 - Charts use ECharts via `echarts-for-react` (`FpsChart`, `MemoryChart`); icons are `lucide-react`; styling is Tailwind CSS v4 (via `@tailwindcss/vite` plugin — no tailwind.config file).
-- Shared TypeScript interfaces (`FpsMetric`, `MemoryMetric`, `LogEntry`, etc.) live in `src/types/index.ts` and must match the CSV schemas produced by `scripts/generate_sample_data.py`.
+- Shared TypeScript interfaces (`FpsMetric`, `MemoryMetric`, `LogEntry`, etc.) live in `src/types/index.ts` and must match the CSV/JSON schemas produced by `scripts/generate_sample_data.py`; `TestRunSummary` in `src/services/SearchService.ts` must match the `runs.json` shape from the same script.
 - UE log parsing lives in a single place, `src/utils/ueLogParser.ts`, used by the browser (`LogTable`'s "open local UE log" flow, parsed client-side and loaded into DuckDB via `loadRowsAsTable`). Don't reimplement this parser elsewhere — keep it framework-agnostic (no DOM/browser-only APIs).
 
 ## Conventions

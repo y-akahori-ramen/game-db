@@ -4,7 +4,6 @@ import type { DuckDBStatus } from '../types';
 
 export const FPS_CSV_FILE = 'fps_metrics.csv';
 export const MEMORY_CSV_FILE = 'memory_metrics.csv';
-const CSV_FILES = [FPS_CSV_FILE, MEMORY_CSV_FILE];
 
 /** Convert Arrow cell values (BigInt, etc.) to plain JS values. */
 function toPlain(value: unknown): unknown {
@@ -60,18 +59,18 @@ export function useDuckDB() {
     };
   }, []);
 
-  /** Fetch CSV files from public/sample_data and register them in DuckDB's virtual FS. */
-  const loadCsvFiles = useCallback(async () => {
+  /**
+   * Fetch a remote data file (CSV/JSON) and register it in DuckDB's virtual FS under `name`,
+   * overwriting any previous registration of the same name.
+   */
+  const loadRemoteFile = useCallback(async (name: string, url: string) => {
     const db = dbRef.current;
     if (!db) throw new Error('DuckDB is not initialized yet');
-    await Promise.all(
-      CSV_FILES.map(async (name) => {
-        const res = await fetch(`${import.meta.env.BASE_URL}sample_data/${name}`);
-        if (!res.ok) throw new Error(`Failed to fetch ${name}: ${res.status}`);
-        const buf = new Uint8Array(await res.arrayBuffer());
-        await db.registerFileBuffer(name, buf);
-      }),
-    );
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+    const buf = new Uint8Array(await res.arrayBuffer());
+    await db.dropFile(name).catch(() => { });
+    await db.registerFileBuffer(name, buf);
   }, []);
 
   /** Execute a SQL query and return rows as plain JS objects. */
@@ -137,7 +136,7 @@ export function useDuckDB() {
   return {
     status,
     error,
-    loadCsvFiles,
+    loadRemoteFile,
     executeQuery,
     loadRowsAsTable,
     loadLocalCsvFile,

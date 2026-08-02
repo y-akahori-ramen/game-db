@@ -1,0 +1,35 @@
+[
+  {
+    "runId": "run-001",
+    "gameVersion": "v1.2.0",
+    "platform": "PS5",
+    "testName": "Level1_Playthrough",
+    "status": "FAILED",
+    "timestamp": "2026-08-01T10:15:00Z",
+    "fpsDataUrl": "sample_data/run-001/fps_metrics.csv",
+    "memoryDataUrl": "sample_data/run-001/memory_metrics.csv",
+    "logsDataUrl": "sample_data/samplelog.log"
+  },
+  {
+    "runId": "run-002",
+    "gameVersion": "v1.2.0",
+    "platform": "Windows",
+    "testName": "Boss_Battle_Stress",
+    "status": "PASSED",
+    "timestamp": "2026-08-01T14:40:00Z",
+    "fpsDataUrl": "sample_data/run-002/fps_metrics.csv",
+    "memoryDataUrl": "sample_data/run-002/memory_metrics.csv",
+    "logsDataUrl": "sample_data/samplelog.log"
+  },
+  {
+    "runId": "run-003",
+    "gameVersion": "v1.3.0-beta",
+    "platform": "iOS",
+    "testName": "Level1_Playthrough",
+    "status": "PASSED",
+    "timestamp": "2026-08-02T09:05:00Z",
+    "fpsDataUrl": "sample_data/run-003/fps_metrics.json",
+    "memoryDataUrl": "sample_data/run-003/memory_metrics.json",
+    "logsDataUrl": "sample_data/samplelog.log"
+  }
+]
