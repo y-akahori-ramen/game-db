@@ -1,14 +1,16 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import {
   Activity,
   Database,
+  FileUp,
   Gauge,
   Loader2,
   MemoryStick,
   ScrollText,
   XCircle,
 } from 'lucide-react';
-import { useDuckDB } from './hooks/useDuckDB';
+import { useDuckDB, FPS_CSV_FILE, MEMORY_CSV_FILE } from './hooks/useDuckDB';
 import FpsChart from './components/FpsChart';
 import MemoryChart from './components/MemoryChart';
 import LogTable, { UE_LOG_TABLE } from './components/LogTable';
@@ -16,12 +18,29 @@ import { parseUeLogText } from './utils/ueLogParser';
 import type { FpsMetric, MemoryMetric } from './types';
 
 export default function App() {
-  const { status, error, loadCsvFiles, executeQuery, loadRowsAsTable } = useDuckDB();
+  const { status, error, loadCsvFiles, executeQuery, loadRowsAsTable, loadLocalCsvFile } =
+    useDuckDB();
   const [fpsData, setFpsData] = useState<FpsMetric[]>([]);
   const [memoryData, setMemoryData] = useState<MemoryMetric[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const fpsFileInputRef = useRef<HTMLInputElement>(null);
+  const [fpsFileName, setFpsFileName] = useState<string | null>(null);
+  const [fpsUploaded, setFpsUploaded] = useState(false);
+  const [fpsFileLoading, setFpsFileLoading] = useState(false);
+  const [fpsFileError, setFpsFileError] = useState<string | null>(null);
+
+  const memoryFileInputRef = useRef<HTMLInputElement>(null);
+  const [memoryFileName, setMemoryFileName] = useState<string | null>(null);
+  const [memoryUploaded, setMemoryUploaded] = useState(false);
+  const [memoryFileLoading, setMemoryFileLoading] = useState(false);
+  const [memoryFileError, setMemoryFileError] = useState<string | null>(null);
+
+  // A locally opened CSV overwrites the sample file registration but is queried identically.
+  const fpsReady = dataLoaded || fpsUploaded;
+  const memoryReady = dataLoaded || memoryUploaded;
 
   const handleLoadData = useCallback(async () => {
     setLoadingData(true);
@@ -30,10 +49,10 @@ export default function App() {
       await loadCsvFiles();
       const [fps, memory, logText] = await Promise.all([
         executeQuery<FpsMetric>(
-          "SELECT timestamp, fps, frame_time_ms FROM 'fps_metrics.csv' ORDER BY timestamp",
+          `SELECT timestamp, fps, frame_time_ms FROM '${FPS_CSV_FILE}' ORDER BY timestamp`,
         ),
         executeQuery<MemoryMetric>(
-          "SELECT timestamp, vram_mb, ram_mb, heap_mb FROM 'memory_metrics.csv' ORDER BY timestamp",
+          `SELECT timestamp, vram_mb, ram_mb, heap_mb FROM '${MEMORY_CSV_FILE}' ORDER BY timestamp`,
         ),
         fetch(`${import.meta.env.BASE_URL}sample_data/samplelog.log`).then((res) => {
           if (!res.ok) throw new Error(`Failed to fetch samplelog.log: ${res.status}`);
@@ -55,6 +74,54 @@ export default function App() {
       setLoadingData(false);
     }
   }, [loadCsvFiles, executeQuery, loadRowsAsTable]);
+
+  const handleFpsFileChange = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      setFpsFileLoading(true);
+      setFpsFileError(null);
+      try {
+        await loadLocalCsvFile(FPS_CSV_FILE, file);
+        const fps = await executeQuery<FpsMetric>(
+          `SELECT timestamp, fps, frame_time_ms FROM '${FPS_CSV_FILE}' ORDER BY timestamp`,
+        );
+        setFpsData(fps);
+        setFpsFileName(file.name);
+        setFpsUploaded(true);
+      } catch (err) {
+        setFpsFileError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setFpsFileLoading(false);
+      }
+    },
+    [loadLocalCsvFile, executeQuery],
+  );
+
+  const handleMemoryFileChange = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      setMemoryFileLoading(true);
+      setMemoryFileError(null);
+      try {
+        await loadLocalCsvFile(MEMORY_CSV_FILE, file);
+        const memory = await executeQuery<MemoryMetric>(
+          `SELECT timestamp, vram_mb, ram_mb, heap_mb FROM '${MEMORY_CSV_FILE}' ORDER BY timestamp`,
+        );
+        setMemoryData(memory);
+        setMemoryFileName(file.name);
+        setMemoryUploaded(true);
+      } catch (err) {
+        setMemoryFileError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setMemoryFileLoading(false);
+      }
+    },
+    [loadLocalCsvFile, executeQuery],
+  );
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -110,20 +177,76 @@ export default function App() {
         {/* Metrics panels */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
-              <Gauge size={16} className="text-cyan-400" /> FPS / Frame Time
-            </h2>
-            {dataLoaded ? (
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+                <Gauge size={16} className="text-cyan-400" /> FPS / Frame Time
+              </h2>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={fpsFileInputRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFpsFileChange}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fpsFileInputRef.current?.click()}
+                  disabled={status !== 'ready' || fpsFileLoading}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {fpsFileLoading ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <FileUp size={14} />
+                  )}
+                  {fpsFileLoading ? '読み込み中...' : 'ローカルのFPSログを開く'}
+                </button>
+              </div>
+            </div>
+            {fpsFileError && <p className="mb-2 text-xs text-red-400">読み込みエラー: {fpsFileError}</p>}
+            {fpsUploaded && fpsFileName && (
+              <p className="mb-2 text-xs text-slate-500">{fpsFileName}</p>
+            )}
+            {fpsReady ? (
               <FpsChart data={fpsData} />
             ) : (
               <Placeholder />
             )}
           </section>
           <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-300">
-              <MemoryStick size={16} className="text-green-400" /> Memory Usage
-            </h2>
-            {dataLoaded ? (
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+                <MemoryStick size={16} className="text-green-400" /> Memory Usage
+              </h2>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={memoryFileInputRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={handleMemoryFileChange}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => memoryFileInputRef.current?.click()}
+                  disabled={status !== 'ready' || memoryFileLoading}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {memoryFileLoading ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <FileUp size={14} />
+                  )}
+                  {memoryFileLoading ? '読み込み中...' : 'ローカルのメモリログを開く'}
+                </button>
+              </div>
+            </div>
+            {memoryFileError && (
+              <p className="mb-2 text-xs text-red-400">読み込みエラー: {memoryFileError}</p>
+            )}
+            {memoryUploaded && memoryFileName && (
+              <p className="mb-2 text-xs text-slate-500">{memoryFileName}</p>
+            )}
+            {memoryReady ? (
               <MemoryChart data={memoryData} />
             ) : (
               <Placeholder />

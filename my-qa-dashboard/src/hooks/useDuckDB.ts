@@ -2,10 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as duckdb from '@duckdb/duckdb-wasm';
 import type { DuckDBStatus } from '../types';
 
-const CSV_FILES = [
-  'fps_metrics.csv',
-  'memory_metrics.csv',
-];
+export const FPS_CSV_FILE = 'fps_metrics.csv';
+export const MEMORY_CSV_FILE = 'memory_metrics.csv';
+const CSV_FILES = [FPS_CSV_FILE, MEMORY_CSV_FILE];
 
 /** Convert Arrow cell values (BigInt, etc.) to plain JS values. */
 function toPlain(value: unknown): unknown {
@@ -123,11 +122,24 @@ export function useDuckDB() {
     [],
   );
 
+  /**
+   * Register a locally opened file under `name` (e.g. FPS_CSV_FILE), overwriting any previous
+   * registration of the same name so existing queries like `FROM '<name>'` keep working unchanged.
+   */
+  const loadLocalCsvFile = useCallback(async (name: string, file: File) => {
+    const db = dbRef.current;
+    if (!db) throw new Error('DuckDB is not initialized yet');
+    const buf = new Uint8Array(await file.arrayBuffer());
+    await db.dropFile(name).catch(() => { });
+    await db.registerFileBuffer(name, buf);
+  }, []);
+
   return {
     status,
     error,
     loadCsvFiles,
     executeQuery,
     loadRowsAsTable,
+    loadLocalCsvFile,
   };
 }
