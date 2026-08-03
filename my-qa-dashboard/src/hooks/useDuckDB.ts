@@ -102,13 +102,35 @@ export function useDuckDB() {
    * any existing table of the same name), so it can be queried as `FROM tableName`. No
    * intermediate file round-trip: the rows are already structured, so encoding them to a file
    * format and decoding them back on every subsequent query would be pure overhead.
+   *
+   * `insertJSONFromPath` requires a single JSON document (a row-array `[{...}, ...]`), not
+   * newline-delimited JSON. Rows are still encoded one at a time straight into bytes (never
+   * joined into a single JS string) because `JSON.stringify` on a large array of rows (e.g. a big
+   * UE log) can exceed the JS engine's max string length and throw "Invalid string length".
    */
   const loadRowsAsTable = useCallback(
     async (tableName: string, rows: Record<string, unknown>[]) => {
       const db = dbRef.current;
       if (!db) throw new Error('DuckDB is not initialized yet');
       const jsonFile = `${tableName}.staging.json`;
-      await db.registerFileText(jsonFile, JSON.stringify(rows));
+      const encoder = new TextEncoder();
+      const chunks: Uint8Array[] = new Array(rows.length + 2);
+      chunks[0] = encoder.encode('[');
+      let totalLength = chunks[0].length;
+      for (let i = 0; i < rows.length; i++) {
+        const chunk = encoder.encode((i === 0 ? '' : ',') + JSON.stringify(rows[i]));
+        chunks[i + 1] = chunk;
+        totalLength += chunk.length;
+      }
+      chunks[rows.length + 1] = encoder.encode(']');
+      totalLength += chunks[rows.length + 1].length;
+      const buf = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        buf.set(chunk, offset);
+        offset += chunk.length;
+      }
+      await db.registerFileBuffer(jsonFile, buf);
       const conn = await db.connect();
       try {
         await conn.query(`DROP TABLE IF EXISTS ${tableName}`);
