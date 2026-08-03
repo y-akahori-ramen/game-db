@@ -151,29 +151,69 @@ def generate_fps(spec: RunSpec) -> pd.DataFrame:
     )
 
 
+#: Per-platform LLM (Low-Level Memory Tracker) tag -> (base_mb, drift_per_sec, noise_std).
+#: Column sets deliberately differ by platform (e.g. only consoles report Wwise
+#: audio tags, only mobile reports CriWare) since the dashboard must not assume
+#: a fixed set of memory columns. `TrackedTotal` is not listed here: it is
+#: always present and is derived as the sum of a run's other tags.
+_MEMORY_TAG_PROFILES: dict[str, dict[str, tuple[float, float, float]]] = {
+    "PS5": {
+        "Untagged": (6.2, 0.003, 0.15),
+        "UObject": (103.0, 0.0004, 0.05),
+        "CriWare": (135.5, 0.0, 0.0),
+        "EngineMisc": (4.1, 0.0004, 0.05),
+        "Audio": (53.7, 0.0002, 0.03),
+        "Audio/AudioMixer": (9.47, 0.0002, 0.03),
+        "EngineMisc/FMsgLogf": (0.13, 0.0005, 0.02),
+        "Audio/Wwise": (42.12, 0.0, 0.0),
+        "Audio/Wwise/Wwise Resource Loader": (0.1, 0.0, 0.0),
+    },
+    "Windows": {
+        "Untagged": (8.5, 0.004, 0.2),
+        "UObject": (140.0, 0.0006, 0.08),
+        "EngineMisc": (5.5, 0.0005, 0.06),
+        "Audio": (61.0, 0.0003, 0.04),
+        "Audio/AudioMixer": (11.2, 0.0003, 0.04),
+        "Textures": (210.0, 0.0015, 0.5),
+        "RenderTargets": (95.0, 0.0008, 0.3),
+        "RHI": (48.0, 0.0004, 0.15),
+    },
+    "iOS": {
+        "Untagged": (4.8, 0.002, 0.1),
+        "UObject": (72.0, 0.0003, 0.04),
+        "CriWare": (58.0, 0.0, 0.0),
+        "EngineMisc": (3.0, 0.0003, 0.03),
+        "Audio": (24.5, 0.0002, 0.02),
+        "Textures": (110.0, 0.0009, 0.25),
+        "RenderTargets": (40.0, 0.0004, 0.12),
+    },
+}
+
+
 def generate_memory(spec: RunSpec) -> pd.DataFrame:
+    """Build a memory tracker table matching UE's LLM CSV output shape (see
+    my-qa-dashboard/sample/llmsample.csv): one column per memory tag plus a
+    `TrackedTotal` column that is always present. Which tags appear varies by
+    platform, matching how the real LLM tracker only reports tags relevant to
+    the platform's subsystems. There is no timestamp column.
+    """
     n = DURATION_SEC * SAMPLE_HZ
     t = np.arange(n) / SAMPLE_HZ
-    # Mobile-ish budgets for iOS, desktop/console otherwise
-    ram_base, vram_base, heap_base = (
-        (1200, 1500, 300) if spec.platform == "iOS" else (2048, 3000, 512)
-    )
-    # Gradually increasing RAM with GC-like drops
-    ram = ram_base + t * 2.5 + rng.normal(0, 20, n)
-    for gc_at in [90, 180, 260]:
-        ram[t >= gc_at] -= 150
-    vram = vram_base + 300 * np.sin(t / 40) + t * 1.2 + rng.normal(0, 30, n)
-    heap = heap_base + t * 1.8 + rng.normal(0, 10, n)
-    for gc_at in [70, 140, 210, 280]:
-        heap[t >= gc_at] -= 80
-    return pd.DataFrame(
-        {
-            "timestamp": t.astype(np.float64),
-            "vram_mb": np.clip(vram, 0, None).round(1),
-            "ram_mb": np.clip(ram, 0, None).round(1),
-            "heap_mb": np.clip(heap, 0, None).round(1),
-        }
-    )
+    profile = _MEMORY_TAG_PROFILES.get(spec.platform, _MEMORY_TAG_PROFILES["Windows"])
+
+    columns: dict[str, np.ndarray] = {}
+    total = np.zeros(n)
+    for tag, (base, drift_per_sec, noise_std) in profile.items():
+        series = base + t * drift_per_sec + (rng.normal(0, noise_std, n) if noise_std else 0.0)
+        # GC-like periodic drops, offset per tag so they don't all dip together.
+        offset = hash(tag) % 40
+        for gc_at in [70 + offset, 150 + offset, 230 + offset]:
+            series[t >= gc_at] -= base * 0.03
+        series = np.clip(series, 0, None)
+        columns[tag] = series.round(2)
+        total += series
+
+    return pd.DataFrame({"TrackedTotal": total.round(2), **columns})
 
 
 def write_metrics(df: pd.DataFrame, path: Path) -> None:

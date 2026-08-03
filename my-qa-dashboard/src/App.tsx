@@ -86,9 +86,7 @@ export default function App() {
           executeQuery<FpsMetric>(
             `SELECT PersistentLevel, FPSMs, GameThread, RenderThread, GPUFrame, RHIThreadTime, ElapsedTime FROM ${fromClause(fpsName)} ORDER BY ElapsedTime`,
           ),
-          executeQuery<MemoryMetric>(
-            `SELECT timestamp, vram_mb, ram_mb, heap_mb FROM ${fromClause(memoryName)} ORDER BY timestamp`,
-          ),
+          executeQuery<MemoryMetric>(`SELECT * FROM ${fromClause(memoryName)}`),
           // Logs are a real UE log file, parsed through the same text -> table pipeline
           // as a user-uploaded log so both are queried identically.
           loadRowsAsTable(
@@ -142,7 +140,7 @@ export default function App() {
       try {
         await loadLocalCsvFile(MEMORY_CSV_FILE, file);
         const memory = await executeQuery<MemoryMetric>(
-          `SELECT timestamp, vram_mb, ram_mb, heap_mb FROM ${fromClause(MEMORY_CSV_FILE)} ORDER BY timestamp`,
+          `SELECT * FROM ${fromClause(MEMORY_CSV_FILE)}`,
         );
         setMemoryData(memory);
         setMemoryFileName(file.name);
