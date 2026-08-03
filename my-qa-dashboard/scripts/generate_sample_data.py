@@ -20,7 +20,8 @@ Run with: uv run scripts/generate_sample_data.py
 
 import json
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -47,6 +48,7 @@ class RunSpec:
     fmt: str  # csv | json
     base_fps: float
     drops: list[tuple[int, int, int]]  # (start_sec, length_sec, floor_fps)
+    levels: list[str] = field(default_factory=lambda: ["PL_Level1", "PL_Level2"])
 
 
 RUNS = [
@@ -87,6 +89,12 @@ RUNS = [
 
 
 def generate_fps(spec: RunSpec) -> pd.DataFrame:
+    """Build a frame-by-frame FPS table matching UE's Stat/CSV output shape
+    (see my-qa-dashboard/sample/fpssample.csv). Columns beyond the common set
+    (log_time, frame, X, Y, Z, FPS, ActorName) are project-specific extras
+    that the dashboard ignores; only PersistentLevel, FPSMs, GameThread,
+    RenderThread, GPUFrame, RHIThreadTime and ElapsedTime are read.
+    """
     n = DURATION_SEC * SAMPLE_HZ
     t = np.arange(n) / SAMPLE_HZ
     # Base fps with slow oscillation and noise
@@ -99,12 +107,46 @@ def generate_fps(spec: RunSpec) -> pd.DataFrame:
     spikes = rng.choice(n, size=10, replace=False)
     fps[spikes] -= rng.uniform(10, spec.base_fps * 0.5, 10)
     fps = np.clip(fps, 5, spec.base_fps * 1.15)
-    frame_time_ms = 1000.0 / fps
+    fps_ms = 1000.0 / fps
+
+    # Split frame time across thread stats, each a plausible share of FPSMs.
+    game_thread = fps_ms * rng.uniform(0.35, 0.45, n)
+    render_thread = fps_ms * rng.uniform(0.25, 0.35, n)
+    gpu_frame = fps_ms * rng.uniform(0.5, 0.65, n)
+    rhi_thread_time = fps_ms * rng.uniform(0.1, 0.2, n)
+
+    # ElapsedTime is the cumulative wall-clock time (sec) implied by each
+    # frame's own duration, mirroring how UE stamps frames.
+    elapsed_time = np.cumsum(fps_ms) / 1000.0
+
+    # PersistentLevel switches once partway through the run, e.g. streaming
+    # into a second level.
+    switch_at = elapsed_time[-1] / 2
+    persistent_level = np.where(elapsed_time < switch_at, spec.levels[0], spec.levels[-1])
+
+    start_dt = datetime(2026, 7, 31, 5, 8, 44)
+    log_time = [
+        (start_dt + timedelta(seconds=float(s))).strftime("%Y.%m.%d-%H.%M.%S:") + f"{int((s % 1) * 1000):03d}"
+        for s in elapsed_time
+    ]
+    frame = (np.arange(n) * 2 + 262).astype(np.int64)
+
     return pd.DataFrame(
         {
-            "timestamp": t.astype(np.float64),
-            "fps": fps.round(2),
-            "frame_time_ms": frame_time_ms.round(2),
+            "log_time": log_time,
+            "frame": frame,
+            "PersistentLevel": persistent_level,
+            "X": 0.0,
+            "Y": 0.0,
+            "Z": 0.0,
+            "FPS": fps.round(6),
+            "FPSMs": fps_ms.round(6),
+            "GameThread": game_thread.round(6),
+            "RenderThread": render_thread.round(6),
+            "GPUFrame": gpu_frame.round(6),
+            "RHIThreadTime": rhi_thread_time.round(6),
+            "ActorName": "",
+            "ElapsedTime": elapsed_time.round(6),
         }
     )
 

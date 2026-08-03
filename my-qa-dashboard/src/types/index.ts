@@ -1,7 +1,16 @@
+/**
+ * FPS metric row. Columns match the common subset of UE's Stat/CSV FPS output
+ * (see my-qa-dashboard/sample/fpssample.csv); a project's actual file may
+ * contain additional columns (e.g. FPS, X/Y/Z, ActorName) which are ignored.
+ */
 export interface FpsMetric {
-  timestamp: number;
-  fps: number;
-  frame_time_ms: number;
+  PersistentLevel: string;
+  FPSMs: number;
+  GameThread: number;
+  RenderThread: number;
+  GPUFrame: number;
+  RHIThreadTime: number;
+  ElapsedTime: number;
 }
 
 export interface MemoryMetric {

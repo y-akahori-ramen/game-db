@@ -84,7 +84,7 @@ export default function App() {
         ]);
         const [fps, memory] = await Promise.all([
           executeQuery<FpsMetric>(
-            `SELECT timestamp, fps, frame_time_ms FROM ${fromClause(fpsName)} ORDER BY timestamp`,
+            `SELECT PersistentLevel, FPSMs, GameThread, RenderThread, GPUFrame, RHIThreadTime, ElapsedTime FROM ${fromClause(fpsName)} ORDER BY ElapsedTime`,
           ),
           executeQuery<MemoryMetric>(
             `SELECT timestamp, vram_mb, ram_mb, heap_mb FROM ${fromClause(memoryName)} ORDER BY timestamp`,
@@ -118,7 +118,7 @@ export default function App() {
       try {
         await loadLocalCsvFile(FPS_CSV_FILE, file);
         const fps = await executeQuery<FpsMetric>(
-          `SELECT timestamp, fps, frame_time_ms FROM ${fromClause(FPS_CSV_FILE)} ORDER BY timestamp`,
+          `SELECT PersistentLevel, FPSMs, GameThread, RenderThread, GPUFrame, RHIThreadTime, ElapsedTime FROM ${fromClause(FPS_CSV_FILE)} ORDER BY ElapsedTime`,
         );
         setFpsData(fps);
         setFpsFileName(file.name);
