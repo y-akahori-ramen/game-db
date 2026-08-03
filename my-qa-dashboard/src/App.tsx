@@ -9,6 +9,7 @@ import {
   Loader2,
   MemoryStick,
   ScrollText,
+  Video,
   XCircle,
 } from 'lucide-react';
 import { useDuckDB, FPS_CSV_FILE, MEMORY_CSV_FILE } from './hooks/useDuckDB';
@@ -218,6 +219,26 @@ export default function App() {
         <SearchPage onOpenRun={handleOpenRun} />
       ) : (
         <main className="p-6 space-y-6">
+          {/* Gameplay video (only present for runs that captured one) */}
+          {selectedRun?.videoUrl && (
+            <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-300">
+                <Video size={16} className="text-purple-400" /> Gameplay Video
+              </h2>
+              <div className="flex justify-center bg-black rounded-md">
+                <video
+                  key={selectedRun.videoUrl}
+                  controls
+                  preload="metadata"
+                  className="max-h-[480px] w-full max-w-3xl"
+                  src={`${import.meta.env.BASE_URL}${selectedRun.videoUrl}`}
+                >
+                  お使いのブラウザは動画再生に対応していません。
+                </video>
+              </div>
+            </section>
+          )}
+
           {/* Metrics panels */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">

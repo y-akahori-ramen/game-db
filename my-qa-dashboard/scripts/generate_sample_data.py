@@ -15,11 +15,17 @@ run-003 uses JSON to exercise the read_json_auto loading path in the app.
 Log sample data is public/sample_data/samplelog.log (a real UE log file), not
 generated here; every run points at it.
 
+Video sample data is sample/sample-3.mp4 (not generated here). It is copied
+into each run directory that has a video (see RunSpec.video below) so the
+dashboard's video panel has something to play; runs without a video exercise
+the "no video" fallback (unchanged current display).
+
 Run with: uv run scripts/generate_sample_data.py
 """
 
 import json
 import random
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -27,9 +33,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-PUBLIC_DIR = Path(__file__).resolve().parent.parent / "public"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PUBLIC_DIR = REPO_ROOT / "public"
 SAMPLE_DIR = PUBLIC_DIR / "sample_data"
 MOCK_DIR = PUBLIC_DIR / "mock_data"
+SOURCE_VIDEO = REPO_ROOT / "sample" / "sample-3.mp4"
 DURATION_SEC = 300
 SAMPLE_HZ = 2  # 2 samples per second
 
@@ -49,6 +57,7 @@ class RunSpec:
     base_fps: float
     drops: list[tuple[int, int, int]]  # (start_sec, length_sec, floor_fps)
     levels: list[str] = field(default_factory=lambda: ["PL_Level1", "PL_Level2"])
+    video: bool = False  # whether this run has a captured gameplay video
 
 
 RUNS = [
@@ -62,6 +71,7 @@ RUNS = [
         fmt="csv",
         base_fps=55,
         drops=[(60, 8, 22), (145, 5, 15), (230, 12, 25)],
+        video=True,
     ),
     RunSpec(
         run_id="run-002",
@@ -73,6 +83,7 @@ RUNS = [
         fmt="csv",
         base_fps=58,
         drops=[(120, 4, 35)],
+        video=True,
     ),
     RunSpec(
         run_id="run-003",
@@ -234,21 +245,32 @@ def main() -> None:
         memory_name = f"memory_metrics.{spec.fmt}"
         write_metrics(generate_fps(spec), run_dir / fps_name)
         write_metrics(generate_memory(spec), run_dir / memory_name)
+
+        video_url = None
+        if spec.video:
+            if not SOURCE_VIDEO.exists():
+                raise FileNotFoundError(f"Source video not found: {SOURCE_VIDEO}")
+            video_path = run_dir / "video.mp4"
+            shutil.copyfile(SOURCE_VIDEO, video_path)
+            video_url = f"sample_data/{spec.run_id}/video.mp4"
+            print(f"wrote {video_path}")
+
         # URLs are BASE_URL-relative (no leading slash), matching TestRunSummary
         # in src/services/SearchService.ts.
-        summaries.append(
-            {
-                "runId": spec.run_id,
-                "gameVersion": spec.game_version,
-                "platform": spec.platform,
-                "testName": spec.test_name,
-                "status": spec.status,
-                "timestamp": spec.timestamp,
-                "fpsDataUrl": f"sample_data/{spec.run_id}/{fps_name}",
-                "memoryDataUrl": f"sample_data/{spec.run_id}/{memory_name}",
-                "logsDataUrl": "sample_data/samplelog.log",
-            }
-        )
+        summary = {
+            "runId": spec.run_id,
+            "gameVersion": spec.game_version,
+            "platform": spec.platform,
+            "testName": spec.test_name,
+            "status": spec.status,
+            "timestamp": spec.timestamp,
+            "fpsDataUrl": f"sample_data/{spec.run_id}/{fps_name}",
+            "memoryDataUrl": f"sample_data/{spec.run_id}/{memory_name}",
+            "logsDataUrl": "sample_data/samplelog.log",
+        }
+        if video_url:
+            summary["videoUrl"] = video_url
+        summaries.append(summary)
     runs_json = MOCK_DIR / "runs.json"
     runs_json.write_text(json.dumps(summaries, indent=2), encoding="utf-8")
     print(f"wrote {runs_json} ({len(summaries)} runs)")

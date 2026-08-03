@@ -8,7 +8,8 @@
     "timestamp": "2026-08-01T10:15:00Z",
     "fpsDataUrl": "sample_data/run-001/fps_metrics.csv",
     "memoryDataUrl": "sample_data/run-001/memory_metrics.csv",
-    "logsDataUrl": "sample_data/samplelog.log"
+    "logsDataUrl": "sample_data/samplelog.log",
+    "videoUrl": "sample_data/run-001/video.mp4"
   },
   {
     "runId": "run-002",
@@ -19,7 +20,8 @@
     "timestamp": "2026-08-01T14:40:00Z",
     "fpsDataUrl": "sample_data/run-002/fps_metrics.csv",
     "memoryDataUrl": "sample_data/run-002/memory_metrics.csv",
-    "logsDataUrl": "sample_data/samplelog.log"
+    "logsDataUrl": "sample_data/samplelog.log",
+    "videoUrl": "sample_data/run-002/video.mp4"
   },
   {
     "runId": "run-003",

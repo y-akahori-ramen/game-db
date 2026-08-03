@@ -18,6 +18,8 @@ export interface TestRunSummary {
     memoryDataUrl: string;
     /** BASE_URL-relative path to the UE log file (.log). */
     logsDataUrl: string;
+    /** BASE_URL-relative path to the run's gameplay video (.mp4). Absent if no video was captured. */
+    videoUrl?: string;
 }
 
 export interface SearchService {
