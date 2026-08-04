@@ -31,7 +31,9 @@ Response contract:
       "timestamp": string,
       "fpsDataUrl": string,
       "memoryDataUrl": string,
-      "logsDataUrl": string
+      "logsDataUrl": string,
+      "videoUrl"?: string,
+      "artifacts": [{ "url": string, "fileName": string, "type": string }, ...]
     }
 """
 
@@ -110,7 +112,9 @@ def _parse_filter_payload(event: dict[str, Any]) -> dict[str, str]:
     else:
         payload = event.get("queryStringParameters") or {}
         if not isinstance(payload, dict):
-            raise ClientErrorResponse("queryStringParameters must be an object when provided.")
+            raise ClientErrorResponse(
+                "queryStringParameters must be an object when provided."
+            )
 
     filter_payload: dict[str, str] = {}
     for key in FILTER_TO_JSON_PATH:
@@ -127,9 +131,7 @@ def _build_search_query(filter_payload: dict[str, str]) -> str:
     catalog = _required_env("ATHENA_CATALOG_NAME")
     database = _required_env("ATHENA_DATABASE_NAME")
     table_name = os.environ.get("ATHENA_TABLE_NAME", "annotation")
-    fully_qualified_table = (
-        f'{_quote_identifier(catalog)}.{_quote_identifier(database)}.{_quote_identifier(table_name)}'
-    )
+    fully_qualified_table = f"{_quote_identifier(catalog)}.{_quote_identifier(database)}.{_quote_identifier(table_name)}"
 
     where_clauses = ["name = 'run-summary'"]
     for filter_name, json_field in FILTER_TO_JSON_PATH.items():
@@ -169,7 +171,9 @@ def _wait_for_query(query_execution_id: str) -> None:
     deadline = time.time() + timeout_seconds
 
     while time.time() < deadline:
-        execution = ATHENA.get_query_execution(QueryExecutionId=query_execution_id)["QueryExecution"]
+        execution = ATHENA.get_query_execution(QueryExecutionId=query_execution_id)[
+            "QueryExecution"
+        ]
         status = execution["Status"]["State"]
         if status == "SUCCEEDED":
             return
@@ -204,7 +208,10 @@ def _fetch_all_rows(query_execution_id: str) -> list[dict[str, str]]:
                 continue
             if not values:
                 continue
-            normalized = {name: values[index] if index < len(values) else "" for index, name in enumerate(column_names)}
+            normalized = {
+                name: values[index] if index < len(values) else ""
+                for index, name in enumerate(column_names)
+            }
             rows.append(normalized)
 
         next_token = response.get("NextToken")
@@ -212,18 +219,28 @@ def _fetch_all_rows(query_execution_id: str) -> list[dict[str, str]]:
             return rows
 
 
-def _annotation_row_to_summary(row: dict[str, str]) -> dict[str, str]:
+def _annotation_row_to_summary(row: dict[str, str]) -> dict[str, Any]:
     raw_payload = row.get("text_value")
     if not raw_payload:
         raise ValueError("Athena row is missing text_value.")
 
     payload = json.loads(raw_payload)
-    missing_fields = [field for field in REQUIRED_RESULT_FIELDS if not payload.get(field)]
+    missing_fields = [
+        field for field in REQUIRED_RESULT_FIELDS if not payload.get(field)
+    ]
     if missing_fields:
-        raise ValueError(f"run-summary annotation missing fields: {', '.join(missing_fields)}")
+        raise ValueError(
+            f"run-summary annotation missing fields: {', '.join(missing_fields)}"
+        )
 
     run_id = payload["run_id"]
-    return {
+    artifacts = [
+        _to_artifact(run_id, payload["fps_key"], "fps"),
+        _to_artifact(run_id, payload["memory_key"], "memory"),
+        _to_artifact(run_id, payload["log_key"], "log"),
+    ]
+
+    summary: dict[str, Any] = {
         "runId": run_id,
         "gameVersion": payload["game_version"],
         "platform": payload["platform"],
@@ -233,6 +250,23 @@ def _annotation_row_to_summary(row: dict[str, str]) -> dict[str, str]:
         "fpsDataUrl": _to_cloudfront_data_url(run_id, payload["fps_key"]),
         "memoryDataUrl": _to_cloudfront_data_url(run_id, payload["memory_key"]),
         "logsDataUrl": _to_cloudfront_data_url(run_id, payload["log_key"]),
+        "artifacts": artifacts,
+    }
+
+    video_key = payload.get("video_key")
+    if video_key:
+        video_artifact = _to_artifact(run_id, video_key, "video")
+        artifacts.append(video_artifact)
+        summary["videoUrl"] = video_artifact["url"]
+
+    return summary
+
+
+def _to_artifact(run_id: str, object_key: str, artifact_type: str) -> dict[str, str]:
+    return {
+        "url": _to_cloudfront_data_url(run_id, object_key),
+        "fileName": posixpath.basename(object_key),
+        "type": artifact_type,
     }
 
 

@@ -1,5 +1,5 @@
 import { getIdToken } from '../auth';
-import type { SearchFilter, SearchService, TestRunSummary } from './SearchService';
+import type { SearchFilter, SearchService, TestRunArtifact, TestRunSummary } from './SearchService';
 
 interface SearchApiRun {
     runId: string;
@@ -11,6 +11,8 @@ interface SearchApiRun {
     fpsDataUrl: string;
     memoryDataUrl: string;
     logsDataUrl: string;
+    videoUrl?: string;
+    artifacts: TestRunArtifact[];
 }
 
 function stripLeadingSlash(path: string): string {
@@ -44,6 +46,8 @@ export class ApiSearchService implements SearchService {
             fpsDataUrl: stripLeadingSlash(run.fpsDataUrl),
             memoryDataUrl: stripLeadingSlash(run.memoryDataUrl),
             logsDataUrl: stripLeadingSlash(run.logsDataUrl),
+            videoUrl: run.videoUrl ? stripLeadingSlash(run.videoUrl) : undefined,
+            artifacts: run.artifacts.map((artifact) => ({ ...artifact, url: stripLeadingSlash(artifact.url) })),
         }));
     }
 }
