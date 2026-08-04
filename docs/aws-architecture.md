@@ -8,7 +8,7 @@
 - ユーザー認証必須
 - IPアドレスによるブロックを任意でかけられる
 - データはS3に保存
-- S3 Annotations を付与し、それを検索して検索一覧に表示
+- テスト実行完了（manifest.jsonアップロード）時に検索用インデックスへ自動反映し、検索条件で一覧に表示
 - ログ / FPS / テスト結果は別ファイルだが、検索画面では同一実行を1件として扱う
 - アップロード用CLIが必要
 - データ表示はS3直接ではなくCloudFront経由（特に動画などの大容量ファイル。エグレス料金もCloudFront経由の方が低い）
@@ -34,8 +34,8 @@ graph LR
         APIGW[API Gateway REST API<br/>Cognitoオーソライザー]
         L1[Lambda: 検索API]
         L2[Lambda: 署名Cookie発行]
-        AT[Annotation Table<br/>S3 Tables / Iceberg]
-        Athena[Athena]
+        L3[Lambda: manifestインデクサ]
+        DDB[(DynamoDB<br/>run検索インデックス)]
         Cognito[Cognito User Pool]
     end
 
@@ -44,11 +44,11 @@ graph LR
     CF -->|/data/*  署名Cookie必須| S3Data
     CF -->|/api/*| APIGW
     WAFR -.->|ステージにアタッチ| APIGW
-    APIGW --> L1 --> Athena --> AT
-    S3Data -.->|非同期反映<br/>metadata.s3 サービスロール| AT
+    APIGW --> L1 --> DDB
+    S3Data -.->|ObjectCreated: manifest.json| L3 --> DDB
     APIGW --> L2
     B -->|ログイン| Cognito
-    CLI -->|IAM認証で直接PUT<br/>+ put-object-annotation| S3Data
+    CLI -->|IAM認証で直接PUT| S3Data
 ```
 
 ## コンポーネント
@@ -98,54 +98,48 @@ s3://qa-data/runs/{run_id}/
 - CLIは **子ファイルを先に、manifestを最後に** PUTする。
   「manifestが存在する = runが完全」という不変条件になり、アップロード途中のrunが検索に出ない。
 
-### 4. 検索 — S3 Annotations + Annotation Table + Athena
+### 4. 検索 — S3イベント通知 + Lambda + DynamoDB
 
-- CLIがアップロード完了時、`manifest.json` に対して annotation 名 `run-summary` で
-  フラットな検索用JSONを1つ付与（`put-object-annotation`）:
+- CLIは子ファイル → `manifest.json` の順でPUTするだけでよい（annotation付与などの追加API呼び出しは不要）。
+- データバケットの **S3 Event Notification**（`s3:ObjectCreated:*`、`suffix: manifest.json`）が
+  **manifestインデクサLambda** を起動し、以下を行う:
+  1. 対象の `manifest.json` を読み込みパース
+  2. 検索用フィールド（`runId` / `gameVersion` / `platform` / `testName` / `status` /
+     `executedAt` / 各データファイルのS3キー）を **DynamoDBテーブル** に1アイテムとして `PutItem`
+  3. `runId` をパーティションキーにすることで、再アップロード・イベント再送があっても冪等（上書き）
+- 反映は**数秒以内**（S3イベント通知はほぼリアルタイム）。Annotation Table + Athena方式のような
+  分単位の遅延・バックフィル待ちが発生しない。
 
-```json
-{
-  "run_id": "run-001",
-  "executed_at": "2026-08-01T10:00:00Z",
-  "game_version": "v1.2.0",
-  "platform": "PS5",
-  "test_name": "Level1_Playthrough",
-  "result": "FAILED",
-  "avg_fps": 54.2,
-  "fps_key": "runs/run-001/fps_metrics.csv",
-  "memory_key": "runs/run-001/memory_metrics.csv",
-  "log_key": "runs/run-001/ue.log",
-  "video_key": "runs/run-001/capture.mp4"
-}
-```
+DynamoDBテーブル設計（`SearchFilter` の `gameVersion` / `platform` / `testName` / `status` は
+いずれも等価フィルタなので、GSIによる `Query` だけで完結できる）:
 
-- 子ファイル側に annotation は不要。検索は「run 1件 = annotation 1行」。
-- 検索Lambda（`ApiSearchService` の接続先）はAthenaでAnnotation Tableをクエリし、
-  `TestRunSummary[]` に整形して返す。`SearchFilter` のフィールドがそのまま
-  `json_extract_scalar` の条件にマップできる:
+| テーブル/GSI | パーティションキー | ソートキー | 用途 |
+| --- | --- | --- | --- |
+| メインテーブル | `runId` | — | `runId` 指定での直接取得（run詳細表示など） |
+| GSI `platform-index` | `platform` | `executedAt` | platform絞り込み＋時系列ソート |
+| GSI `status-index` | `status` | `executedAt` | status絞り込み＋時系列ソート |
+| GSI `all-index` | 固定値 `"ALL"` | `executedAt` | フィルタ未指定時の最新run一覧 |
 
-```sql
-SELECT object_key, text_value
-FROM "s3tablescatalog/aws-s3"."b_<データバケット名>"."annotation"
-WHERE name = 'run-summary'
-  AND json_extract_scalar(text_value, '$.platform') = 'PS5'
-  AND json_extract_scalar(text_value, '$.result') = 'FAILED'
-  AND CAST(json_extract_scalar(text_value, '$.avg_fps') AS DOUBLE) < 55
-```
-
-- annotation は **オブジェクト再PUTなしで個別更新可能**（最大1000個/オブジェクト、各1MB）。
-  後からQA担当が「トリアージ済み」「既知バグ #1234」等のステータスを `triage` など
-  別名のannotationとして追加する拡張も自然にできる。
+- `testName` / `gameVersion` など、選んだGSIのパーティションキーに含まれない残りの条件は、
+  `Query` 結果に対して `FilterExpression` で追加絞り込みする。
+- 検索Lambda（`ApiSearchService` の接続先）は `SearchFilter` の指定値から最も選択的な
+  フィールドで使用するGSIを選び、`Query` → 残り条件は `FilterExpression`、という単純なロジックになる
+  （AthenaのSQL組み立て・クエリ実行のポーリングが不要）。
+- run詳細表示（アーティファクト一覧を含む完全な情報）が必要な画面では、引き続き
+  CloudFront経由で `manifest.json` を直接フェッチする。DynamoDBアイテムは検索用の
+  フラットな要約のみを持ち、`artifacts` の全量は複製しない。
+- 将来、QA担当が「トリアージ済み」「既知バグ #1234」等のステータスを追加したい場合は、
+  DynamoDBアイテムに属性を追加する（または別テーブル/別GSIにする）ことで対応できる。
 
 必要なセットアップ:
 
-1. **サービスロール**: `metadata.s3.amazonaws.com` がAssumeRoleできるロール
-   （`s3:GetObjectAnnotation` / `s3:GetObjectVersionAnnotation` / `s3:ListBucket` 等）。
-2. **バケットの Metadata Configuration**: `AnnotationTableConfiguration: ENABLED`
-   （Journalは任意、Inventoryは DISABLED で可）。有効化直後は `BACKFILLING` → `ACTIVE` まで数十分。
-3. **Glue federated catalog**: S3 Tables用の `s3tablescatalog` を作成し、Athenaから
-   `"s3tablescatalog/aws-s3"."b_<bucket>"."annotation"` を参照。
-4. **バージョン要件**: boto3 ≥ 1.43.31 / AWS CLI ≥ v2.35.6。
+1. **DynamoDBテーブル**: オンデマンドキャパシティ、PK=`runId`、上記GSI群。
+2. **S3 Event Notification**: データバケットの `manifest.json` サフィックスにマッチする
+   `ObjectCreated` イベントをLambdaへ通知（Lambdaリソースポリシーで `s3.amazonaws.com` からの
+   invokeを許可）。
+3. **manifestインデクサLambdaの権限**: 対象オブジェクトへの `s3:GetObject`、
+   DynamoDBテーブルへの `dynamodb:PutItem`。
+4. **検索Lambdaの権限**: DynamoDBテーブル・各GSIへの `dynamodb:Query` / `dynamodb:GetItem`。
 
 ### 5. アップロードCLI
 
@@ -154,9 +148,8 @@ WHERE name = 'run-summary'
 - 機能:
   - 大容量動画のマルチパートアップロード、リトライ
   - 子ファイル → manifest の順でPUT
-  - manifest への `run-summary` annotation 付与（`put-object-annotation`）
-- CLIの `--annotation-payload` はファイルパス直指定（`file://` プレフィックス不可）。
-- `aws s3 cp --copy-props all` でannotationごとコピー可能（S3間コピー時）。
+- CLIはS3への書き込み権限のみで完結する。検索インデックスへの反映はS3イベント通知経由で
+  manifestインデクサLambdaが行うため、CLI側に追加のAPI呼び出しやIAM権限（annotation付与等）は不要。
 
 ### 6. データ配信 — CloudFront経由
 
@@ -168,11 +161,16 @@ WHERE name = 'run-summary'
 
 ## 留意点
 
-- **Annotation Tableへの反映は非同期**（分単位の遅延）。アップロード直後の即時検索が必要な場合のみ、
-  検索Lambdaで直近分を `list_object_annotations` で補完するフォローを検討。QAラン検索なら通常許容範囲。
-- Athenaは1クエリ数秒＋スキャン課金。run件数規模ならスキャン量は微小で、
-  DynamoDB同期基盤（EventBridge + Lambda + テーブル）を丸ごと省略できるのが利点。
-  ミリ秒応答が必要になった時点で初めてDynamoDBキャッシュを検討する。
+- **S3イベント通知は基本的に高信頼だが、稀に重複配信・欠落があり得る**前提で設計する。
+  DynamoDB書き込みは `runId` をキーにした冪等な `PutItem`（同じ内容での上書きは無害）にしておく。
+  取りこぼし対策として、定期的（例: 日次）に全 `manifest.json` を棚卸ししてDynamoDBと
+  突き合わせるバックフィルLambdaを用意すると安心（オプション）。
+- DynamoDBはオンデマンドキャパシティにしておけば、テスト実行数の増減に対してスループット面の
+  事前チューニングはほぼ不要。GSIのパーティションキー（`platform` / `status` 等）に値の偏りが
+  大きい場合はホットパーティションに注意。
+- 将来「run横断の集計・トレンド分析」（例: 直近半年のFPS推移）のような自由なSQL分析が
+  必要になった場合は、DynamoDBからS3への定期エクスポート + Athena/QuickSightなど
+  別の分析経路を追加する2段構えが現実的（検索UXの経路とは分離する）。
 - CloudFront/WAFはグローバルサービスだが、**CloudFront用ACM証明書は us-east-1** に必要。
 - REST APIはHTTP APIよりリクエスト単価が高いが、WAF直アタッチ（IPブロックの直URL迂回対策）を
   優先して採用。リクエスト数規模的にコスト差は誤差。
@@ -185,7 +183,7 @@ WHERE name = 'run-summary'
 | 既存コード | AWS構成での役割 |
 | --- | --- |
 | `src/services/ApiSearchService.ts`（スタブ） | `/api/search` を呼ぶ実装に置き換え |
-| `src/services/SearchService.ts` の `SearchFilter` | 検索LambdaのAthenaクエリ条件にマップ |
+| `src/services/SearchService.ts` の `SearchFilter` | 検索LambdaのDynamoDB `Query`/`FilterExpression` 条件にマップ |
 | `TestRunSummary` の `*DataUrl` | CloudFrontの `/data/runs/{run_id}/...` を指す |
 | `useDuckDB.loadRemoteFile` | そのまま（CloudFront経由URLをfetch） |
 | `VITE_USE_MOCK` | 本番ビルドで `'false'` にして `ApiSearchService` に切替 |
