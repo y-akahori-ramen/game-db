@@ -33,5 +33,6 @@ uv run cli/qa_upload.py upload \
   - `capture.mp4`
 - Requires at least one recognized child file.
 - Uploads child files first, then `manifest.json` last.
-- Adds the `run-summary` object annotation to `manifest.json` after upload.
+- The `manifest.json` upload triggers the manifest indexer Lambda (S3 event notification), which
+  updates the DynamoDB search index — no extra API calls or IAM permissions are needed beyond S3 writes.
 - Designed to run directly with `uv run`; dependencies are declared inline in `cli/qa_upload.py`.

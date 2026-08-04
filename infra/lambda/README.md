@@ -5,6 +5,7 @@ This directory contains standalone Python handlers for the later `api-gateway` w
 ## `search/index.py`
 
 ### Request / response contract
+
 - Intended route: `POST /api/search`
 - Request body JSON shape must match `my-qa-dashboard/src/services/SearchService.ts`:
   - `gameVersion?: string`
@@ -22,49 +23,51 @@ This directory contains standalone Python handlers for the later `api-gateway` w
   - `memoryDataUrl`
   - `logsDataUrl`
 
+### Query strategy
+
+- `platform` given: `Query` on GSI `platform-index` (PK `platform`, SK `executedAt` DESC).
+- `status` given (no platform): `Query` on GSI `status-index`.
+- No filter: `Query` on GSI `all-index` (fixed PK `ALL`).
+- Remaining filter fields are applied with a `FilterExpression`.
+
 ### Required environment variables
-- `ATHENA_WORKGROUP_NAME`
-  - Set from `analytics.workGroup.name` (currently `game-qa-dashboard-search`).
-- `ATHENA_CATALOG_NAME`
-  - Set to `"${analytics.s3TablesCatalogName}/aws-s3"`, which is expected to be `s3tablescatalog/aws-s3`.
-- `ATHENA_DATABASE_NAME`
-  - Set to the S3 Metadata bucket namespace name used by Athena. Per AWS docs the annotation table naming convention is `"s3tablescatalog/aws-s3"."b_<bucket-name>"."annotation"`, so this env var should be `b_${storage.dataBucket.bucketName}` (keep hyphens; the code quotes identifiers).
-- `ATHENA_TABLE_NAME`
-  - Optional. Defaults to `annotation`.
-- `ATHENA_OUTPUT_LOCATION`
-  - Optional if the workgroup enforces a result location. If you want the function to be explicit, set it to `s3://${analytics.queryResultsBucket.bucketName}/athena-results/`.
-- `QUERY_POLL_INTERVAL_SECONDS`
-  - Optional. Default `1.0`.
-- `QUERY_TIMEOUT_SECONDS`
-  - Optional. Default `30`.
+
+- `TABLE_NAME`
+  - Set from `searchIndex.table.tableName`.
+- `MAX_RESULTS`
+  - Optional. Default `200`.
 
 ### IAM permissions
-Grant the Lambda execution role:
-- Athena:
-  - `athena:StartQueryExecution`
-  - `athena:GetQueryExecution`
-  - `athena:GetQueryResults`
-  - `athena:StopQueryExecution`
-  - `athena:GetWorkGroup`
-- Scope Athena permissions to the specific workgroup ARN where possible.
-- S3 on the Athena query-results bucket:
-  - `s3:GetObject`
-  - `s3:PutObject`
-  - `s3:ListBucket`
-- Glue / Athena catalog access for the S3 Metadata annotation table:
-  - `glue:GetDatabase`
-  - `glue:GetDatabases`
-  - `glue:GetTable`
-  - `glue:GetTables`
-  - `glue:GetPartition`
-  - `glue:GetPartitions`
-- Lake Formation note:
-  - `infra/lib/analytics.ts` creates the federated catalog with `createDatabaseDefaultPermissions` and `createTableDefaultPermissions` for `IAM_ALLOWED_PRINCIPALS`, so ordinary IAM-based access should work as long as those defaults remain unchanged.
-  - If Lake Formation permissions are later tightened, this role must also be granted access to the federated catalog/database/table corresponding to `"s3tablescatalog/aws-s3"."b_<bucket-name>"."annotation"`.
+
+Grant the Lambda execution role (`searchIndex.table.grantReadData` covers all of this):
+
+- `dynamodb:Query` / `dynamodb:GetItem` on the table and all of its GSIs (`table/*/index/*`).
+
+## `manifest-indexer/index.py`
+
+### Trigger / behavior
+
+- Triggered by S3 `ObjectCreated` events on the data bucket with `prefix: runs/` and
+  `suffix: manifest.json` (wired in `infra/lib/search-index.ts`).
+- Reads the manifest, validates required fields, and upserts one DynamoDB item per run
+  (PK = `runId`, plus `gsiAllPk = "ALL"` for the all-index GSI). Idempotent under event
+  redelivery and re-uploads.
+- Malformed manifests are logged and skipped so S3's async-invoke retry does not loop.
+
+### Required environment variables
+
+- `TABLE_NAME`
+  - Set from `searchIndex.table.tableName`.
+
+### IAM permissions
+
+- `s3:GetObject` on `runs/*` in the data bucket.
+- `dynamodb:PutItem` on the table (`table.grantWriteData`).
 
 ## `auth-cookie/index.py`
 
 ### Route / behavior
+
 - Intended route: `GET /api/auth/cookie`
 - Assumes API Gateway REST API + Cognito authorizer has already authenticated the caller.
 - Returns CloudFront signed-cookie `Set-Cookie` headers for `/data/*` via `multiValueHeaders`:
@@ -73,6 +76,7 @@ Grant the Lambda execution role:
   - `CloudFront-Key-Pair-Id`
 
 ### Required environment variables
+
 - `SIGNING_KEY_SECRET_ARN`
   - Set from `signingKeys.privateKeySecret.secretArn` (or secret name).
 - `CLOUDFRONT_KEY_PAIR_ID`
@@ -83,13 +87,17 @@ Grant the Lambda execution role:
   - Optional. Default `43200` (12 hours).
 
 ### IAM permissions
+
 Grant the Lambda execution role:
+
 - `secretsmanager:GetSecretValue`
   - Scope to `signingKeys.privateKeySecret.secretArn` only.
 
 ### Packaging requirement
+
 This handler imports `cryptography` to produce CloudFront's required RSA-SHA1 signature.
 AWS Lambda Python runtimes do not bundle `cryptography` by default, so the wiring step must do one of the following:
+
 - Preferably create the function with a bundling construct such as `PythonFunction` that installs `infra/lambda/auth-cookie/requirements.txt` into the deployment artifact.
 - Or attach a Lambda Layer that contains a runtime-compatible build of `cryptography`.
 

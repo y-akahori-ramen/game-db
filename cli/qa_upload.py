@@ -1,10 +1,14 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "boto3>=1.43.31",
+#     "boto3>=1.34",
 # ]
 # ///
 """Upload a QA test run to S3 using the child-files-then-manifest workflow.
+
+The manifest.json upload triggers the manifest indexer Lambda (via S3 event
+notification) which updates the DynamoDB search index; no extra API calls or
+IAM permissions are needed here beyond S3 write access.
 
 Run with:
     uv run cli/qa_upload.py upload --help
@@ -23,7 +27,12 @@ from typing import Any
 import boto3
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError, ProfileNotFound
+from botocore.exceptions import (
+    BotoCoreError,
+    ClientError,
+    NoCredentialsError,
+    ProfileNotFound,
+)
 
 RECOGNIZED_FILES = {
     "fps_metrics.csv": "fps_key",
@@ -32,7 +41,6 @@ RECOGNIZED_FILES = {
     "capture.mp4": "video_key",
 }
 RESULT_CHOICES = ("PASSED", "FAILED")
-ANNOTATION_NAME = "run-summary"
 
 
 @dataclass(frozen=True)
@@ -44,7 +52,7 @@ class UploadFile:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Upload QA run artifacts to S3 and annotate the manifest for search.",
+        description="Upload QA run artifacts to S3 (child files first, manifest last).",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -90,7 +98,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def utc_now_iso8601() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def validate_executed_at(value: str | None) -> str:
@@ -165,8 +178,12 @@ def create_s3_client(profile: str | None, region: str):
     )
 
 
-def upload_child_files(s3_client: Any, bucket: str, uploads: list[UploadFile]) -> dict[str, str | None]:
-    summary_keys: dict[str, str | None] = {field: None for field in RECOGNIZED_FILES.values()}
+def upload_child_files(
+    s3_client: Any, bucket: str, uploads: list[UploadFile]
+) -> dict[str, str | None]:
+    summary_keys: dict[str, str | None] = {
+        field: None for field in RECOGNIZED_FILES.values()
+    }
     transfer_config = build_transfer_config()
 
     for upload in uploads:
@@ -187,7 +204,9 @@ def upload_child_files(s3_client: Any, bucket: str, uploads: list[UploadFile]) -
     return summary_keys
 
 
-def build_manifest(args: argparse.Namespace, summary_keys: dict[str, str | None]) -> dict[str, Any]:
+def build_manifest(
+    args: argparse.Namespace, summary_keys: dict[str, str | None]
+) -> dict[str, Any]:
     return {
         "run_id": args.run_id,
         "executed_at": args.executed_at,
@@ -203,10 +222,14 @@ def build_manifest(args: argparse.Namespace, summary_keys: dict[str, str | None]
     }
 
 
-def upload_manifest(s3_client: Any, bucket: str, run_id: str, manifest: dict[str, Any]) -> str:
+def upload_manifest(
+    s3_client: Any, bucket: str, run_id: str, manifest: dict[str, Any]
+) -> str:
     manifest_key = f"runs/{run_id}/manifest.json"
     manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
-    print(f"Uploading manifest ({human_size(len(manifest_bytes))}) -> s3://{bucket}/{manifest_key}")
+    print(
+        f"Uploading manifest ({human_size(len(manifest_bytes))}) -> s3://{bucket}/{manifest_key}"
+    )
     s3_client.put_object(
         Bucket=bucket,
         Key=manifest_key,
@@ -217,23 +240,6 @@ def upload_manifest(s3_client: Any, bucket: str, run_id: str, manifest: dict[str
     return manifest_key
 
 
-def put_run_summary_annotation(
-    s3_client: Any,
-    bucket: str,
-    manifest_key: str,
-    manifest: dict[str, Any],
-) -> None:
-    annotation_payload = json.dumps(manifest, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    print(f"Attaching {ANNOTATION_NAME!r} annotation to s3://{bucket}/{manifest_key}")
-    s3_client.put_object_annotation(
-        Bucket=bucket,
-        Key=manifest_key,
-        AnnotationName=ANNOTATION_NAME,
-        AnnotationPayload=annotation_payload,
-    )
-    print(f"Attached {ANNOTATION_NAME!r} annotation successfully.")
-
-
 def handle_upload(args: argparse.Namespace) -> int:
     try:
         args.executed_at = validate_executed_at(args.executed_at)
@@ -241,8 +247,7 @@ def handle_upload(args: argparse.Namespace) -> int:
         s3_client = create_s3_client(args.profile, args.region)
         summary_keys = upload_child_files(s3_client, args.bucket, uploads)
         manifest = build_manifest(args, summary_keys)
-        manifest_key = upload_manifest(s3_client, args.bucket, args.run_id, manifest)
-        put_run_summary_annotation(s3_client, args.bucket, manifest_key, manifest)
+        upload_manifest(s3_client, args.bucket, args.run_id, manifest)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

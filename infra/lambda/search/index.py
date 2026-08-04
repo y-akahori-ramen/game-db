@@ -12,13 +12,14 @@ Request contract (API Gateway REST API Lambda proxy integration):
 - GET is also tolerated by reading event["queryStringParameters"].
 
 Environment variables:
-- ATHENA_WORKGROUP_NAME (required)
-- ATHENA_CATALOG_NAME (required, e.g. "s3tablescatalog/aws-s3")
-- ATHENA_DATABASE_NAME (required, e.g. "b_my-bucket-name")
-- ATHENA_TABLE_NAME (optional, default: "annotation")
-- ATHENA_OUTPUT_LOCATION (optional, only needed if the workgroup does not enforce one)
-- QUERY_POLL_INTERVAL_SECONDS (optional, default: 1.0)
-- QUERY_TIMEOUT_SECONDS (optional, default: 30)
+- TABLE_NAME (required): DynamoDB run search index table.
+- MAX_RESULTS (optional, default: 200)
+
+Query strategy:
+- platform given  -> Query GSI platform-index (PK platform, SK executedAt DESC)
+- status given    -> Query GSI status-index (PK status, SK executedAt DESC)
+- otherwise       -> Query GSI all-index (fixed PK "ALL", SK executedAt DESC)
+Remaining filter fields are applied via FilterExpression.
 
 Response contract:
 - 200 with body containing a JSON array of TestRunSummary objects:
@@ -43,32 +44,28 @@ import json
 import logging
 import os
 import posixpath
-import time
 from typing import Any
 
 import boto3
+from boto3.dynamodb.conditions import Attr, Key
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.INFO)
 
-ATHENA = boto3.client("athena")
+DYNAMODB = boto3.resource("dynamodb")
 
-FILTER_TO_JSON_PATH = {
-    "gameVersion": "game_version",
-    "platform": "platform",
-    "testName": "test_name",
-    "status": "result",
-}
-REQUIRED_RESULT_FIELDS = (
-    "run_id",
-    "executed_at",
-    "game_version",
+FILTER_KEYS = ("gameVersion", "platform", "testName", "status")
+ALL_PARTITION_VALUE = "ALL"
+REQUIRED_ITEM_FIELDS = (
+    "runId",
+    "executedAt",
+    "gameVersion",
     "platform",
-    "test_name",
-    "result",
-    "fps_key",
-    "memory_key",
-    "log_key",
+    "testName",
+    "status",
+    "fpsKey",
+    "memoryKey",
+    "logKey",
 )
 
 
@@ -83,15 +80,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     del context
     try:
         filter_payload = _parse_filter_payload(event)
-        query = _build_search_query(filter_payload)
-        LOGGER.info("Executing Athena search query: %s", query)
-        rows = _run_athena_query(query)
-        results = [_annotation_row_to_summary(row) for row in rows]
+        items = _query_runs(filter_payload)
+        results = [_item_to_summary(item) for item in items]
         return _json_response(200, results)
     except ClientErrorResponse as exc:
         LOGGER.warning("Invalid search request: %s", exc.message)
         return _json_response(exc.status_code, {"message": exc.message})
-    except Exception as exc:  # pragma: no cover - runtime safety net
+    except Exception:  # pragma: no cover - runtime safety net
         LOGGER.exception("Search Lambda failed")
         return _json_response(500, {"message": "Internal server error"})
 
@@ -117,7 +112,7 @@ def _parse_filter_payload(event: dict[str, Any]) -> dict[str, str]:
             )
 
     filter_payload: dict[str, str] = {}
-    for key in FILTER_TO_JSON_PATH:
+    for key in FILTER_KEYS:
         value = payload.get(key)
         if value is None or value == "":
             continue
@@ -127,133 +122,80 @@ def _parse_filter_payload(event: dict[str, Any]) -> dict[str, str]:
     return filter_payload
 
 
-def _build_search_query(filter_payload: dict[str, str]) -> str:
-    catalog = _required_env("ATHENA_CATALOG_NAME")
-    database = _required_env("ATHENA_DATABASE_NAME")
-    table_name = os.environ.get("ATHENA_TABLE_NAME", "annotation")
-    fully_qualified_table = f"{_quote_identifier(catalog)}.{_quote_identifier(database)}.{_quote_identifier(table_name)}"
+def _query_runs(filter_payload: dict[str, str]) -> list[dict[str, Any]]:
+    table = DYNAMODB.Table(_required_env("TABLE_NAME"))
+    max_results = int(os.environ.get("MAX_RESULTS", "200"))
 
-    where_clauses = ["name = 'run-summary'"]
-    for filter_name, json_field in FILTER_TO_JSON_PATH.items():
-        value = filter_payload.get(filter_name)
-        if value is None:
-            continue
-        escaped_value = _escape_sql_literal(value)
-        where_clauses.append(
-            f"json_extract_scalar(text_value, '$.{json_field}') = '{escaped_value}'"
-        )
+    if "platform" in filter_payload:
+        index_name = "platform-index"
+        key_condition = Key("platform").eq(filter_payload["platform"])
+        filter_fields = [k for k in filter_payload if k != "platform"]
+    elif "status" in filter_payload:
+        index_name = "status-index"
+        key_condition = Key("status").eq(filter_payload["status"])
+        filter_fields = [k for k in filter_payload if k != "status"]
+    else:
+        index_name = "all-index"
+        key_condition = Key("gsiAllPk").eq(ALL_PARTITION_VALUE)
+        filter_fields = list(filter_payload)
 
-    return (
-        "SELECT text_value "
-        f"FROM {fully_qualified_table} "
-        f"WHERE {' AND '.join(where_clauses)} "
-        "ORDER BY json_extract_scalar(text_value, '$.executed_at') DESC"
-    )
-
-
-def _run_athena_query(query: str) -> list[dict[str, str]]:
-    params: dict[str, Any] = {
-        "QueryString": query,
-        "WorkGroup": _required_env("ATHENA_WORKGROUP_NAME"),
+    query_params: dict[str, Any] = {
+        "IndexName": index_name,
+        "KeyConditionExpression": key_condition,
+        "ScanIndexForward": False,  # executedAt DESC (newest first)
     }
-    output_location = os.environ.get("ATHENA_OUTPUT_LOCATION")
-    if output_location:
-        params["ResultConfiguration"] = {"OutputLocation": output_location}
 
-    query_execution_id = ATHENA.start_query_execution(**params)["QueryExecutionId"]
-    _wait_for_query(query_execution_id)
-    return _fetch_all_rows(query_execution_id)
+    filter_expression = None
+    for field in filter_fields:
+        condition = Attr(field).eq(filter_payload[field])
+        filter_expression = (
+            condition if filter_expression is None else filter_expression & condition
+        )
+    if filter_expression is not None:
+        query_params["FilterExpression"] = filter_expression
 
+    items: list[dict[str, Any]] = []
+    last_evaluated_key: dict[str, Any] | None = None
+    while len(items) < max_results:
+        if last_evaluated_key:
+            query_params["ExclusiveStartKey"] = last_evaluated_key
+        response = table.query(**query_params)
+        items.extend(response.get("Items", []))
+        last_evaluated_key = response.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
 
-def _wait_for_query(query_execution_id: str) -> None:
-    poll_interval = float(os.environ.get("QUERY_POLL_INTERVAL_SECONDS", "1.0"))
-    timeout_seconds = int(os.environ.get("QUERY_TIMEOUT_SECONDS", "30"))
-    deadline = time.time() + timeout_seconds
-
-    while time.time() < deadline:
-        execution = ATHENA.get_query_execution(QueryExecutionId=query_execution_id)[
-            "QueryExecution"
-        ]
-        status = execution["Status"]["State"]
-        if status == "SUCCEEDED":
-            return
-        if status in {"FAILED", "CANCELLED"}:
-            reason = execution["Status"].get("StateChangeReason", "No reason provided")
-            raise RuntimeError(f"Athena query {status.lower()}: {reason}")
-        time.sleep(poll_interval)
-
-    ATHENA.stop_query_execution(QueryExecutionId=query_execution_id)
-    raise TimeoutError(f"Athena query timed out after {timeout_seconds} seconds.")
+    return items[:max_results]
 
 
-def _fetch_all_rows(query_execution_id: str) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    next_token: str | None = None
-    column_names: list[str] | None = None
-
-    while True:
-        request: dict[str, Any] = {"QueryExecutionId": query_execution_id}
-        if next_token:
-            request["NextToken"] = next_token
-
-        response = ATHENA.get_query_results(**request)
-        result_set = response["ResultSet"]
-        column_info = result_set["ResultSetMetadata"]["ColumnInfo"]
-        if column_names is None:
-            column_names = [column["Name"] for column in column_info]
-
-        for row in result_set.get("Rows", []):
-            values = [cell.get("VarCharValue", "") for cell in row.get("Data", [])]
-            if column_names and values == column_names:
-                continue
-            if not values:
-                continue
-            normalized = {
-                name: values[index] if index < len(values) else ""
-                for index, name in enumerate(column_names)
-            }
-            rows.append(normalized)
-
-        next_token = response.get("NextToken")
-        if not next_token:
-            return rows
-
-
-def _annotation_row_to_summary(row: dict[str, str]) -> dict[str, Any]:
-    raw_payload = row.get("text_value")
-    if not raw_payload:
-        raise ValueError("Athena row is missing text_value.")
-
-    payload = json.loads(raw_payload)
-    missing_fields = [
-        field for field in REQUIRED_RESULT_FIELDS if not payload.get(field)
-    ]
+def _item_to_summary(item: dict[str, Any]) -> dict[str, Any]:
+    missing_fields = [field for field in REQUIRED_ITEM_FIELDS if not item.get(field)]
     if missing_fields:
         raise ValueError(
-            f"run-summary annotation missing fields: {', '.join(missing_fields)}"
+            f"Search index item missing fields: {', '.join(missing_fields)}"
         )
 
-    run_id = payload["run_id"]
+    run_id = item["runId"]
     artifacts = [
-        _to_artifact(run_id, payload["fps_key"], "fps"),
-        _to_artifact(run_id, payload["memory_key"], "memory"),
-        _to_artifact(run_id, payload["log_key"], "log"),
+        _to_artifact(run_id, item["fpsKey"], "fps"),
+        _to_artifact(run_id, item["memoryKey"], "memory"),
+        _to_artifact(run_id, item["logKey"], "log"),
     ]
 
     summary: dict[str, Any] = {
         "runId": run_id,
-        "gameVersion": payload["game_version"],
-        "platform": payload["platform"],
-        "testName": payload["test_name"],
-        "status": payload["result"],
-        "timestamp": payload["executed_at"],
-        "fpsDataUrl": _to_cloudfront_data_url(run_id, payload["fps_key"]),
-        "memoryDataUrl": _to_cloudfront_data_url(run_id, payload["memory_key"]),
-        "logsDataUrl": _to_cloudfront_data_url(run_id, payload["log_key"]),
+        "gameVersion": item["gameVersion"],
+        "platform": item["platform"],
+        "testName": item["testName"],
+        "status": item["status"],
+        "timestamp": item["executedAt"],
+        "fpsDataUrl": _to_cloudfront_data_url(run_id, item["fpsKey"]),
+        "memoryDataUrl": _to_cloudfront_data_url(run_id, item["memoryKey"]),
+        "logsDataUrl": _to_cloudfront_data_url(run_id, item["logKey"]),
         "artifacts": artifacts,
     }
 
-    video_key = payload.get("video_key")
+    video_key = item.get("videoKey")
     if video_key:
         video_artifact = _to_artifact(run_id, video_key, "video")
         artifacts.append(video_artifact)
@@ -279,14 +221,6 @@ def _required_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"Missing required environment variable: {name}")
     return value
-
-
-def _escape_sql_literal(value: str) -> str:
-    return value.replace("'", "''")
-
-
-def _quote_identifier(identifier: str) -> str:
-    return '"' + identifier.replace('"', '""') + '"'
 
 
 def _json_response(status_code: int, body: Any) -> dict[str, Any]:

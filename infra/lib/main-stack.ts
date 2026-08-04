@@ -3,14 +3,13 @@ import * as cdk from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import { Construct } from 'constructs';
-import { Analytics } from './analytics';
 import { Auth } from './auth';
 import { BLOCKED_IPS } from './blocked-ips';
+import { SearchIndex } from './search-index';
 import { SigningKeys } from './signing-keys';
 import { Storage } from './storage';
 
@@ -28,7 +27,7 @@ export class MainStack extends cdk.Stack {
   public readonly storage: Storage;
   public readonly auth: Auth;
   public readonly signingKeys: SigningKeys;
-  public readonly analytics: Analytics;
+  public readonly searchIndex: SearchIndex;
   public readonly searchFunction: lambda.Function;
   public readonly cookieFunction: lambda.Function;
   public readonly restApi: apigateway.RestApi;
@@ -41,68 +40,23 @@ export class MainStack extends cdk.Stack {
 
     this.signingKeys = new SigningKeys(this, 'SigningKeys');
 
-    this.analytics = new Analytics(this, 'Analytics', {
+    this.searchIndex = new SearchIndex(this, 'SearchIndex', {
       dataBucket: this.storage.dataBucket,
     });
 
-    const athenaWorkGroupName = this.analytics.workGroup.name ?? this.analytics.workGroup.ref;
-    const athenaCatalogName = `${this.analytics.s3TablesCatalogName}/aws-s3`;
-    const athenaDatabaseName = `b_${this.storage.dataBucket.bucketName}`;
-    const athenaOutputLocation = `s3://${this.analytics.queryResultsBucket.bucketName}/athena-results/`;
     const lambdaSourceRoot = path.join(__dirname, '..', 'lambda');
 
     this.searchFunction = new lambda.Function(this, 'SearchFunction', {
       code: lambda.Code.fromAsset(path.join(lambdaSourceRoot, 'search')),
       handler: 'index.handler',
       runtime: lambda.Runtime.PYTHON_3_13,
-      timeout: cdk.Duration.seconds(60),
+      timeout: cdk.Duration.seconds(30),
       environment: {
-        ATHENA_WORKGROUP_NAME: athenaWorkGroupName,
-        ATHENA_CATALOG_NAME: athenaCatalogName,
-        ATHENA_DATABASE_NAME: athenaDatabaseName,
-        ATHENA_OUTPUT_LOCATION: athenaOutputLocation,
-        QUERY_POLL_INTERVAL_SECONDS: '1.0',
-        QUERY_TIMEOUT_SECONDS: '30',
+        TABLE_NAME: this.searchIndex.table.tableName,
       },
     });
 
-    this.analytics.queryResultsBucket.grantReadWrite(this.searchFunction);
-
-    this.searchFunction.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: [
-          'athena:StartQueryExecution',
-          'athena:GetQueryExecution',
-          'athena:GetQueryResults',
-          'athena:StopQueryExecution',
-          'athena:GetWorkGroup',
-        ],
-        resources: [
-          `arn:${cdk.Aws.PARTITION}:athena:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:workgroup/${athenaWorkGroupName}`,
-        ],
-      }),
-    );
-
-    this.searchFunction.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: [
-          'glue:GetDatabase',
-          'glue:GetDatabases',
-          'glue:GetTable',
-          'glue:GetTables',
-          'glue:GetPartition',
-          'glue:GetPartitions',
-        ],
-        // Scoped to the S3 Tables federated catalog (root catalog resource + the named
-        // catalog/database/table hierarchy under it), rather than a full-account wildcard.
-        resources: [
-          `arn:${cdk.Aws.PARTITION}:glue:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:catalog`,
-          `arn:${cdk.Aws.PARTITION}:glue:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:catalog/${this.analytics.s3TablesCatalogName}`,
-          `arn:${cdk.Aws.PARTITION}:glue:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:database/${this.analytics.s3TablesCatalogName}/*`,
-          `arn:${cdk.Aws.PARTITION}:glue:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:table/${this.analytics.s3TablesCatalogName}/*/*`,
-        ],
-      }),
-    );
+    this.searchIndex.table.grantReadData(this.searchFunction);
 
     // TODO: switch to PythonFunction (@aws-cdk/aws-lambda-python-alpha) for automatic dependency
     // bundling once Docker is available in the build environment; requires adding the matching CDK
