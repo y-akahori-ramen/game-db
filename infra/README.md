@@ -15,11 +15,17 @@ npm install
 ## Synthesize
 
 ```sh
+npm --prefix ../my-qa-dashboard run build
 npx cdk synth
 ```
+
+`cdk synth`/`cdk deploy` bundles `my-qa-dashboard/dist` as an asset (`MainStack`'s
+`SpaDeployment`), so the webapp must be built first — otherwise synth fails because the
+`dist` directory doesn't exist.
 
 ## Deploy
 
 ```sh
+npm --prefix ../my-qa-dashboard run build
 npx cdk deploy --all
 ```

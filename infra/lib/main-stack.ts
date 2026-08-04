@@ -5,6 +5,7 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import { Construct } from 'constructs';
 import { Analytics } from './analytics';
@@ -184,6 +185,15 @@ export class MainStack extends cdk.Stack {
     });
 
     this.cookieFunction.addEnvironment('CLOUDFRONT_DOMAIN', this.distribution.distributionDomainName);
+
+    // Syncs my-qa-dashboard/dist (must be built beforehand, see infra/README.md) to the SPA bucket
+    // and invalidates the CloudFront cache so `cdk deploy` picks up webapp changes on every run.
+    new s3deploy.BucketDeployment(this, 'SpaDeployment', {
+      sources: [s3deploy.Source.asset(path.join(__dirname, '..', '..', 'my-qa-dashboard', 'dist'))],
+      destinationBucket: this.storage.spaBucket,
+      distribution: this.distribution,
+      distributionPaths: ['/*'],
+    });
 
     const authorizer = new apigateway.CognitoUserPoolsAuthorizer(this, 'ApiAuthorizer', {
       cognitoUserPools: [this.auth.userPool],
