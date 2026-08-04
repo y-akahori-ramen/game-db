@@ -17,6 +17,7 @@ import FpsChart from './components/FpsChart';
 import MemoryChart from './components/MemoryChart';
 import LogTable, { UE_LOG_TABLE } from './components/LogTable';
 import SearchPage from './components/SearchPage';
+import ArtifactsPanel from './components/ArtifactsPanel';
 import { parseUeLogText } from './utils/ueLogParser';
 import type { TestRunSummary } from './services';
 import type { FpsMetric, MemoryMetric } from './types';
@@ -219,6 +220,11 @@ export default function App() {
         <SearchPage onOpenRun={handleOpenRun} />
       ) : (
         <main className="p-6 space-y-6">
+          {/* Artifacts produced by the run: fps/memory/log/video/screenshots etc. */}
+          {selectedRun && (
+            <ArtifactsPanel runId={selectedRun.runId} artifacts={selectedRun.artifacts} />
+          )}
+
           {/* Gameplay video (only present for runs that captured one) */}
           {selectedRun?.videoUrl && (
             <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">

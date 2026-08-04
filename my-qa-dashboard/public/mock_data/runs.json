@@ -9,6 +9,43 @@
     "fpsDataUrl": "sample_data/run-001/fps_metrics.csv",
     "memoryDataUrl": "sample_data/run-001/memory_metrics.csv",
     "logsDataUrl": "sample_data/samplelog.log",
+    "artifacts": [
+      {
+        "url": "sample_data/run-001/fps_metrics.csv",
+        "fileName": "fps_metrics.csv",
+        "type": "fps"
+      },
+      {
+        "url": "sample_data/run-001/memory_metrics.csv",
+        "fileName": "memory_metrics.csv",
+        "type": "memory"
+      },
+      {
+        "url": "sample_data/samplelog.log",
+        "fileName": "samplelog.log",
+        "type": "log"
+      },
+      {
+        "url": "sample_data/run-001/video.mp4",
+        "fileName": "video.mp4",
+        "type": "video"
+      },
+      {
+        "url": "sample_data/run-001/screenshot_001.png",
+        "fileName": "screenshot_001.png",
+        "type": "screenshot"
+      },
+      {
+        "url": "sample_data/run-001/screenshot_002.png",
+        "fileName": "screenshot_002.png",
+        "type": "screenshot"
+      },
+      {
+        "url": "sample_data/run-001/screenshot_003.png",
+        "fileName": "screenshot_003.png",
+        "type": "screenshot"
+      }
+    ],
     "videoUrl": "sample_data/run-001/video.mp4"
   },
   {
@@ -21,6 +58,38 @@
     "fpsDataUrl": "sample_data/run-002/fps_metrics.csv",
     "memoryDataUrl": "sample_data/run-002/memory_metrics.csv",
     "logsDataUrl": "sample_data/samplelog.log",
+    "artifacts": [
+      {
+        "url": "sample_data/run-002/fps_metrics.csv",
+        "fileName": "fps_metrics.csv",
+        "type": "fps"
+      },
+      {
+        "url": "sample_data/run-002/memory_metrics.csv",
+        "fileName": "memory_metrics.csv",
+        "type": "memory"
+      },
+      {
+        "url": "sample_data/samplelog.log",
+        "fileName": "samplelog.log",
+        "type": "log"
+      },
+      {
+        "url": "sample_data/run-002/video.mp4",
+        "fileName": "video.mp4",
+        "type": "video"
+      },
+      {
+        "url": "sample_data/run-002/screenshot_001.png",
+        "fileName": "screenshot_001.png",
+        "type": "screenshot"
+      },
+      {
+        "url": "sample_data/run-002/screenshot_002.png",
+        "fileName": "screenshot_002.png",
+        "type": "screenshot"
+      }
+    ],
     "videoUrl": "sample_data/run-002/video.mp4"
   },
   {
@@ -32,6 +101,23 @@
     "timestamp": "2026-08-02T09:05:00Z",
     "fpsDataUrl": "sample_data/run-003/fps_metrics.json",
     "memoryDataUrl": "sample_data/run-003/memory_metrics.json",
-    "logsDataUrl": "sample_data/samplelog.log"
+    "logsDataUrl": "sample_data/samplelog.log",
+    "artifacts": [
+      {
+        "url": "sample_data/run-003/fps_metrics.json",
+        "fileName": "fps_metrics.json",
+        "type": "fps"
+      },
+      {
+        "url": "sample_data/run-003/memory_metrics.json",
+        "fileName": "memory_metrics.json",
+        "type": "memory"
+      },
+      {
+        "url": "sample_data/samplelog.log",
+        "fileName": "samplelog.log",
+        "type": "log"
+      }
+    ]
   }
 ]

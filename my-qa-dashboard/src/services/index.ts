@@ -2,7 +2,13 @@ import { MockSearchService } from './MockSearchService';
 import { ApiSearchService } from './ApiSearchService';
 import type { SearchService } from './SearchService';
 
-export type { SearchFilter, SearchService, TestRunSummary } from './SearchService';
+export type {
+    SearchFilter,
+    SearchService,
+    TestRunSummary,
+    TestRunArtifact,
+    TestRunArtifactType,
+} from './SearchService';
 
 // Mock unless explicitly disabled (VITE_USE_MOCK=false).
 export const searchService: SearchService =

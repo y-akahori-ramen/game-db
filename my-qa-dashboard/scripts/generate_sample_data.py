@@ -3,6 +3,7 @@
 # dependencies = [
 #     "pandas",
 #     "numpy",
+#     "pillow",
 # ]
 # ///
 """Generate dummy QA metrics per test run into public/sample_data/run-XXX/,
@@ -20,6 +21,15 @@ into each run directory that has a video (see RunSpec.video below) so the
 dashboard's video panel has something to play; runs without a video exercise
 the "no video" fallback (unchanged current display).
 
+Screenshot sample data is a handful of dummy PNGs generated per run (see
+RunSpec.screenshots below) so the artifacts panel has something to list and
+download besides fps/memory/log/video; runs with 0 screenshots exercise the
+"no screenshots" case.
+
+Each run's `artifacts` list in runs.json enumerates every file the run
+produced (fps/memory/log/video/screenshots), matching TestRunArtifact in
+src/services/SearchService.ts.
+
 Run with: uv run scripts/generate_sample_data.py
 """
 
@@ -32,6 +42,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from PIL import Image, ImageDraw
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PUBLIC_DIR = REPO_ROOT / "public"
@@ -58,6 +69,7 @@ class RunSpec:
     drops: list[tuple[int, int, int]]  # (start_sec, length_sec, floor_fps)
     levels: list[str] = field(default_factory=lambda: ["PL_Level1", "PL_Level2"])
     video: bool = False  # whether this run has a captured gameplay video
+    screenshots: int = 0  # number of dummy screenshot PNGs to generate
 
 
 RUNS = [
@@ -72,6 +84,7 @@ RUNS = [
         base_fps=55,
         drops=[(60, 8, 22), (145, 5, 15), (230, 12, 25)],
         video=True,
+        screenshots=3,
     ),
     RunSpec(
         run_id="run-002",
@@ -84,6 +97,7 @@ RUNS = [
         base_fps=58,
         drops=[(120, 4, 35)],
         video=True,
+        screenshots=2,
     ),
     RunSpec(
         run_id="run-003",
@@ -227,6 +241,26 @@ def generate_memory(spec: RunSpec) -> pd.DataFrame:
     return pd.DataFrame({"TrackedTotal": total.round(2), **columns})
 
 
+def generate_screenshot(index: int, run_id: str, spec: RunSpec) -> Image.Image:
+    """Build a small dummy screenshot PNG (gradient + label text) so the
+    artifacts panel has real image files to list/preview/download.
+    """
+    width, height = 320, 180
+    top = tuple(rng.integers(40, 120, 3).tolist())
+    bottom = tuple(rng.integers(0, 40, 3).tolist())
+    img = Image.new("RGB", (width, height))
+    draw = ImageDraw.Draw(img)
+    for y in range(height):
+        ratio = y / max(height - 1, 1)
+        color = tuple(int(top[c] + (bottom[c] - top[c]) * ratio) for c in range(3))
+        draw.line([(0, y), (width, y)], fill=color)
+    draw.rectangle([8, 8, width - 8, height - 8], outline=(255, 255, 255), width=1)
+    draw.text((16, 16), f"{run_id}", fill=(255, 255, 255))
+    draw.text((16, 36), f"{spec.test_name}", fill=(220, 220, 220))
+    draw.text((16, height - 28), f"shot {index:03d}", fill=(0, 255, 255))
+    return img
+
+
 def write_metrics(df: pd.DataFrame, path: Path) -> None:
     if path.suffix == ".json":
         path.write_text(json.dumps(df.to_dict(orient="records")), encoding="utf-8")
@@ -255,8 +289,30 @@ def main() -> None:
             video_url = f"sample_data/{spec.run_id}/video.mp4"
             print(f"wrote {video_path}")
 
+        screenshot_urls: list[str] = []
+        for i in range(spec.screenshots):
+            shot_name = f"screenshot_{i + 1:03d}.png"
+            shot_path = run_dir / shot_name
+            generate_screenshot(i + 1, spec.run_id, spec).save(shot_path)
+            screenshot_urls.append(f"sample_data/{spec.run_id}/{shot_name}")
+            print(f"wrote {shot_path}")
+
         # URLs are BASE_URL-relative (no leading slash), matching TestRunSummary
         # in src/services/SearchService.ts.
+        fps_url = f"sample_data/{spec.run_id}/{fps_name}"
+        memory_url = f"sample_data/{spec.run_id}/{memory_name}"
+        logs_url = "sample_data/samplelog.log"
+
+        artifacts = [
+            {"url": fps_url, "fileName": fps_name, "type": "fps"},
+            {"url": memory_url, "fileName": memory_name, "type": "memory"},
+            {"url": logs_url, "fileName": "samplelog.log", "type": "log"},
+        ]
+        if video_url:
+            artifacts.append({"url": video_url, "fileName": "video.mp4", "type": "video"})
+        for shot_url in screenshot_urls:
+            artifacts.append({"url": shot_url, "fileName": Path(shot_url).name, "type": "screenshot"})
+
         summary = {
             "runId": spec.run_id,
             "gameVersion": spec.game_version,
@@ -264,9 +320,10 @@ def main() -> None:
             "testName": spec.test_name,
             "status": spec.status,
             "timestamp": spec.timestamp,
-            "fpsDataUrl": f"sample_data/{spec.run_id}/{fps_name}",
-            "memoryDataUrl": f"sample_data/{spec.run_id}/{memory_name}",
-            "logsDataUrl": "sample_data/samplelog.log",
+            "fpsDataUrl": fps_url,
+            "memoryDataUrl": memory_url,
+            "logsDataUrl": logs_url,
+            "artifacts": artifacts,
         }
         if video_url:
             summary["videoUrl"] = video_url
