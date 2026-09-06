@@ -155,6 +155,8 @@ export default function App() {
 
   // Sync route.runId with selectedRun
   useEffect(() => {
+    let cancelled = false;
+
     if (route.name === 'dashboard' && route.runId) {
       if (selectedRun?.runId !== route.runId) {
         // Find run by ID
@@ -163,14 +165,17 @@ export default function App() {
             setLoadingData(true);
             setLoadError(null);
             const allRuns = await searchService.searchRuns({});
+            if (cancelled) return;
             const targetRun = allRuns.find((r) => r.runId === route.runId);
             if (targetRun) {
               await loadRunData(targetRun);
             } else {
+              if (cancelled) return;
               setLoadError(`Run ID "${route.runId}" が見つかりませんでした。`);
               setLoadingData(false);
             }
           } catch (err) {
+            if (cancelled) return;
             setLoadError(err instanceof Error ? err.message : String(err));
             setLoadingData(false);
           }
@@ -179,6 +184,10 @@ export default function App() {
     } else {
       setSelectedRun(null);
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [route, selectedRun?.runId, loadRunData]);
 
   const handleOpenRun = useCallback(
@@ -343,7 +352,18 @@ export default function App() {
           <p className="mt-2 text-sm text-red-400">DuckDB init error: {error}</p>
         )}
         {loadError && (
-          <p className="mt-2 text-sm text-red-400">Data load error: {loadError}</p>
+          <div className="mt-2 flex items-center gap-3">
+            <p className="text-sm text-red-400">Data load error: {loadError}</p>
+            {selectedRun && (
+              <button
+                type="button"
+                onClick={() => void loadRunData(selectedRun)}
+                className="rounded border border-red-500/40 bg-red-950/40 px-2 py-0.5 text-xs text-red-300 hover:bg-red-900/60 cursor-pointer"
+              >
+                再試行
+              </button>
+            )}
+          </div>
         )}
       </header>
 
@@ -460,7 +480,15 @@ export default function App() {
                   {fpsReady && fpsData.length > 0 ? (
                     <FpsChart data={fpsData} isFullscreen={isFpsFullscreen} />
                   ) : (
-                    <Placeholder message={selectedRun && !selectedRun.fpsDataUrl && !fpsUploaded ? 'このテスト実行には FPS データがありません。' : 'Open a test run or a local file to render chart.'} />
+                    <Placeholder
+                      message={
+                        loadingData
+                          ? 'FPS データを読み込み中...'
+                          : selectedRun && !selectedRun.fpsDataUrl && !fpsUploaded
+                            ? 'このテスト実行には FPS データがありません。'
+                            : 'Open a test run or a local file to render chart.'
+                      }
+                    />
                   )}
                 </div>
               )}
@@ -534,7 +562,15 @@ export default function App() {
                   {memoryReady && memoryData.length > 0 ? (
                     <MemoryChart data={memoryData} isFullscreen={isMemoryFullscreen} />
                   ) : (
-                    <Placeholder message={selectedRun && !selectedRun.memoryDataUrl && !memoryUploaded ? 'このテスト実行には メモリデータがありません。' : 'Open a test run or a local file to render chart.'} />
+                    <Placeholder
+                      message={
+                        loadingData
+                          ? 'メモリデータを読み込み中...'
+                          : selectedRun && !selectedRun.memoryDataUrl && !memoryUploaded
+                            ? 'このテスト実行には メモリデータがありません。'
+                            : 'Open a test run or a local file to render chart.'
+                      }
+                    />
                   )}
                 </div>
               )}

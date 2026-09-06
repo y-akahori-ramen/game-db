@@ -1,103 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
 
-export interface RouteState {
-  name: 'search' | 'dashboard' | 'compare';
-  runId?: string;
-  compareRunIds?: [string, string];
-}
-
-import { mergeQueryParams, type QueryParams } from '../utils/routeHelpers';
-export type { QueryParams };
-export { mergeQueryParams };
-
-function getNormalizedPathname(): string {
-  const base = import.meta.env.BASE_URL || '/';
-  let path = window.location.pathname;
-  if (base !== '/' && path.startsWith(base)) {
-    path = path.slice(base.length);
-  }
-  if (!path.startsWith('/')) {
-    path = `/${path}`;
-  }
-  return path;
-}
+import {
+  mergeQueryParams,
+  normalizePathname,
+  parseRouteFromLocation,
+  type QueryParams,
+  type RouteState,
+} from '../utils/routeHelpers';
+export type { QueryParams, RouteState };
+export { mergeQueryParams, normalizePathname, parseRouteFromLocation };
 
 function parseRoute(): { route: RouteState; params: QueryParams } {
-  const path = getNormalizedPathname();
-  const searchParams = new URLSearchParams(window.location.search);
-
-  const tParam = searchParams.get('t');
-  const logParam = searchParams.get('log') || searchParams.get('line');
-  const testNameParam = searchParams.get('testName') || searchParams.get('test');
-  const gameVersionParam = searchParams.get('gameVersion') || searchParams.get('version');
-  const platformParam = searchParams.get('platform');
-  const statusParam = searchParams.get('status');
-  const mediaParam = searchParams.get('media');
-
-  const params: QueryParams = {};
-  if (tParam !== null && !isNaN(Number(tParam))) {
-    params.t = Number(tParam);
-  }
-  if (logParam !== null && !isNaN(Number(logParam))) {
-    params.log = Number(logParam);
-  }
-  if (testNameParam) params.testName = testNameParam;
-  if (gameVersionParam) params.gameVersion = gameVersionParam;
-  if (platformParam) params.platform = platformParam;
-  if (statusParam) params.status = statusParam;
-  if (mediaParam) params.media = mediaParam;
-
-
-  // Matches /compare/:runA/:runB
-  const compareMatch = /^\/compare\/([^/?#]+)\/([^/?#]+)/.exec(path);
-  if (compareMatch) {
-    return {
-      route: {
-        name: 'compare',
-        compareRunIds: [decodeURIComponent(compareMatch[1]), decodeURIComponent(compareMatch[2])],
-      },
-      params,
-    };
-  }
-
-  // Matches /compare?a=run-001&b=run-002 or ?runs=run-001,run-002
-  if (path === '/compare' || path.startsWith('/compare/')) {
-    const aParam = searchParams.get('a');
-    const bParam = searchParams.get('b');
-    const runsParam = searchParams.get('runs');
-    let runA = aParam;
-    let runB = bParam;
-    if (!runA && !runB && runsParam) {
-      const parts = runsParam.split(',').map((p) => p.trim());
-      if (parts.length >= 2) {
-        runA = parts[0];
-        runB = parts[1];
-      }
-    }
-    if (runA && runB) {
-      return {
-        route: {
-          name: 'compare',
-          compareRunIds: [runA, runB],
-        },
-        params,
-      };
-    }
-  }
-
-  // Matches /runs/:runId
-  const match = /^\/runs\/([^/?#]+)/.exec(path);
-  if (match) {
-    return {
-      route: { name: 'dashboard', runId: decodeURIComponent(match[1]) },
-      params,
-    };
-  }
-
-  return {
-    route: { name: 'search' },
-    params,
-  };
+  const base = import.meta.env.BASE_URL || '/';
+  return parseRouteFromLocation(window.location.pathname, window.location.search, base);
 }
 
 function buildUrl(path: string, params?: QueryParams): string {

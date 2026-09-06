@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import * as duckdb from '@duckdb/duckdb-wasm';
 import type { DuckDBStatus } from '../types';
 
@@ -13,39 +13,65 @@ function toPlain(value: unknown): unknown {
   return value;
 }
 
+let duckDbInstance: duckdb.AsyncDuckDB | null = null;
+let duckDbPromise: Promise<duckdb.AsyncDuckDB> | null = null;
+let duckDbError: Error | null = null;
+
+async function initDuckDB(): Promise<duckdb.AsyncDuckDB> {
+  const bundles = duckdb.getJsDelivrBundles();
+  const bundle = await duckdb.selectBundle(bundles);
+  const workerUrl = URL.createObjectURL(
+    new Blob([`importScripts("${bundle.mainWorker!}");`], {
+      type: 'text/javascript',
+    }),
+  );
+  const worker = new Worker(workerUrl);
+  const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING);
+  const db = new duckdb.AsyncDuckDB(logger, worker);
+  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  URL.revokeObjectURL(workerUrl);
+  return db;
+}
+
+export async function getDuckDB(): Promise<duckdb.AsyncDuckDB> {
+  if (duckDbInstance) {
+    return duckDbInstance;
+  }
+  if (!duckDbPromise) {
+    duckDbPromise = initDuckDB()
+      .then((db) => {
+        duckDbInstance = db;
+        duckDbError = null;
+        return db;
+      })
+      .catch((e: unknown) => {
+        duckDbError = e instanceof Error ? e : new Error(String(e));
+        duckDbPromise = null;
+        throw duckDbError;
+      });
+  }
+  return duckDbPromise;
+}
+
 export function useDuckDB() {
-  const [status, setStatus] = useState<DuckDBStatus>('loading');
-  const [error, setError] = useState<string | null>(null);
-  const dbRef = useRef<duckdb.AsyncDuckDB | null>(null);
-  const initPromiseRef = useRef<Promise<duckdb.AsyncDuckDB> | null>(null);
+  const [status, setStatus] = useState<DuckDBStatus>(() => {
+    if (duckDbInstance) return 'ready';
+    if (duckDbError) return 'error';
+    return 'loading';
+  });
+  const [error, setError] = useState<string | null>(() => {
+    return duckDbError ? duckDbError.message : null;
+  });
 
   useEffect(() => {
     let cancelled = false;
 
-    async function init(): Promise<duckdb.AsyncDuckDB> {
-      const bundles = duckdb.getJsDelivrBundles();
-      const bundle = await duckdb.selectBundle(bundles);
-      const workerUrl = URL.createObjectURL(
-        new Blob([`importScripts("${bundle.mainWorker!}");`], {
-          type: 'text/javascript',
-        }),
-      );
-      const worker = new Worker(workerUrl);
-      const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING);
-      const db = new duckdb.AsyncDuckDB(logger, worker);
-      await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-      URL.revokeObjectURL(workerUrl);
-      return db;
-    }
-
-    if (!initPromiseRef.current) {
-      initPromiseRef.current = init();
-    }
-
-    initPromiseRef.current
-      .then((db) => {
-        dbRef.current = db;
-        if (!cancelled) setStatus('ready');
+    getDuckDB()
+      .then(() => {
+        if (!cancelled) {
+          setStatus('ready');
+          setError(null);
+        }
       })
       .catch((e: unknown) => {
         if (!cancelled) {
@@ -64,8 +90,7 @@ export function useDuckDB() {
    * overwriting any previous registration of the same name.
    */
   const loadRemoteFile = useCallback(async (name: string, url: string) => {
-    const db = dbRef.current;
-    if (!db) throw new Error('DuckDB is not initialized yet');
+    const db = await getDuckDB();
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
     const buf = new Uint8Array(await res.arrayBuffer());
@@ -76,8 +101,7 @@ export function useDuckDB() {
   /** Execute a SQL query and return rows as plain JS objects. */
   const executeQuery = useCallback(
     async <T = Record<string, unknown>>(sql: string): Promise<T[]> => {
-      const db = dbRef.current;
-      if (!db) throw new Error('DuckDB is not initialized yet');
+      const db = await getDuckDB();
       const conn = await db.connect();
       try {
         const result = await conn.query(sql);
@@ -110,9 +134,32 @@ export function useDuckDB() {
    */
   const loadRowsAsTable = useCallback(
     async (tableName: string, rows: Record<string, unknown>[]) => {
-      const db = dbRef.current;
-      if (!db) throw new Error('DuckDB is not initialized yet');
-      const jsonFile = `${tableName}.staging.json`;
+      const db = await getDuckDB();
+
+      if (rows.length === 0) {
+        const conn = await db.connect();
+        try {
+          await conn.query(`DROP TABLE IF EXISTS ${tableName}`);
+          await conn.query(`
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+              line_number INTEGER,
+              frame INTEGER,
+              timestamp_raw VARCHAR,
+              level VARCHAR,
+              verbosity VARCHAR,
+              category VARCHAR,
+              message VARCHAR,
+              type VARCHAR
+            )
+          `);
+        } finally {
+          await conn.close();
+        }
+        return;
+      }
+
+      const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const jsonFile = `${tableName}_staging_${uniqueSuffix}.json`;
       const encoder = new TextEncoder();
       const chunks: Uint8Array[] = new Array(rows.length + 2);
       chunks[0] = encoder.encode('[');
@@ -137,7 +184,7 @@ export function useDuckDB() {
         await conn.insertJSONFromPath(jsonFile, { name: tableName });
       } finally {
         await conn.close();
-        await db.dropFile(jsonFile);
+        await db.dropFile(jsonFile).catch(() => { });
       }
     },
     [],
@@ -148,8 +195,7 @@ export function useDuckDB() {
    * registration of the same name so existing queries like `FROM '<name>'` keep working unchanged.
    */
   const loadLocalCsvFile = useCallback(async (name: string, file: File) => {
-    const db = dbRef.current;
-    if (!db) throw new Error('DuckDB is not initialized yet');
+    const db = await getDuckDB();
     const buf = new Uint8Array(await file.arrayBuffer());
     await db.dropFile(name).catch(() => { });
     await db.registerFileBuffer(name, buf);
