@@ -27,5 +27,7 @@ npx cdk synth
 
 ```sh
 npm --prefix ../my-qa-dashboard run build
+# Optional: Set GOOGLE_CLIENT_ID to provision the IAM OIDC provider and QA upload CLI role
+export GOOGLE_CLIENT_ID="your-desktop-client-id.apps.googleusercontent.com"
 npx cdk deploy --all
 ```

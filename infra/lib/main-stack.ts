@@ -3,6 +3,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
@@ -21,6 +22,12 @@ export interface MainStackProps extends cdk.StackProps {
    * override explicitly if you still hit a naming conflict.
    */
   readonly cognitoDomainPrefix?: string;
+  /**
+   * Google OAuth 2.0 Client ID for the QA upload CLI.
+   * When provided, creates an IAM OIDC Provider for accounts.google.com and an IAM Role
+   * allowing the CLI to assume upload permissions via STS AssumeRoleWithWebIdentity.
+   */
+  readonly googleClientId?: string;
 }
 
 export class MainStack extends cdk.Stack {
@@ -224,5 +231,35 @@ export class MainStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'AppUrl', {
       value: `https://${this.distribution.distributionDomainName}`,
     });
+
+    const googleClientId = props.googleClientId ?? process.env.GOOGLE_CLIENT_ID;
+    if (googleClientId) {
+      const googleProvider = new iam.OpenIdConnectProvider(this, 'GoogleOidcProvider', {
+        url: 'https://accounts.google.com',
+        clientIds: [googleClientId],
+      });
+
+      const cliUploadRole = new iam.Role(this, 'CliUploadRole', {
+        roleName: 'GameQaDashboardCliUploadRole',
+        assumedBy: new iam.FederatedPrincipal(
+          googleProvider.openIdConnectProviderArn,
+          {
+            StringEquals: {
+              'accounts.google.com:aud': googleClientId,
+            },
+          },
+          'sts:AssumeRoleWithWebIdentity',
+        ),
+        description:
+          'IAM Role assumed by the QA upload CLI via Google Account OIDC (STS AssumeRoleWithWebIdentity).',
+      });
+
+      this.storage.dataBucket.grantWrite(cliUploadRole, 'runs/*');
+
+      new cdk.CfnOutput(this, 'CliUploadRoleArn', {
+        value: cliUploadRole.roleArn,
+        description: 'IAM Role ARN for QA upload CLI (passed via --role-arn).',
+      });
+    }
   }
 }

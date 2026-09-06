@@ -22,17 +22,18 @@ function stripLeadingSlash(path: string): string {
 /** API-backed search service. Enabled via VITE_USE_MOCK=false. */
 export class ApiSearchService implements SearchService {
     async searchRuns(filter: SearchFilter): Promise<TestRunSummary[]> {
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+        };
         const idToken = getIdToken();
-        if (!idToken) {
-            throw new Error('Not logged in: missing ID token for /api/search request.');
+        if (idToken) {
+            headers['Authorization'] = `Bearer ${idToken}`;
         }
 
         const response = await fetch(`${import.meta.env.BASE_URL}api/search`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${idToken}`,
-            },
+            headers,
+            credentials: 'include',
             body: JSON.stringify(filter),
         });
 
