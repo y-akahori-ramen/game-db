@@ -27,7 +27,16 @@ npx cdk synth
 
 ```sh
 npm --prefix ../my-qa-dashboard run build
-# Optional: Set GOOGLE_CLIENT_ID to provision the IAM OIDC provider and QA upload CLI role
-export GOOGLE_CLIENT_ID="your-desktop-client-id.apps.googleusercontent.com"
+
+# Optional: Set Google OAuth credentials for Lambda@Edge edge authentication and CLI role
+export GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+export GOOGLE_CLIENT_SECRET="your-web-client-secret"
+# export GOOGLE_ALLOWED_DOMAIN="example.com" # optional: restrict by Google Workspace domain
+
 npx cdk deploy --all
 ```
+
+After deployment:
+
+- If `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` were not set during deploy, populate them in the AWS Secrets Manager secret `GameQaDashboard/GoogleOidcConfig` in `us-east-1`.
+- Register `https://<DistributionDomainName>/_callback` as an Authorized Redirect URI in Google Cloud Console.

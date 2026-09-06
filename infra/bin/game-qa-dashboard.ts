@@ -12,6 +12,10 @@ const edgeStack = new EdgeStack(app, 'GameQaDashboardEdgeStack', {
     region: 'us-east-1',
   },
   crossRegionReferences: true,
+  googleClientId: process.env.GOOGLE_CLIENT_ID,
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  googleAllowedDomain: process.env.GOOGLE_ALLOWED_DOMAIN,
+  googleAllowedEmails: process.env.GOOGLE_ALLOWED_EMAILS,
 });
 
 new MainStack(app, 'GameQaDashboardMainStack', {
@@ -21,4 +25,7 @@ new MainStack(app, 'GameQaDashboardMainStack', {
   },
   crossRegionReferences: true,
   edgeWebAclArn: edgeStack.webAclArn,
+  edgeAuthVersion: edgeStack.edgeAuthVersion,
+  googleClientId: process.env.GOOGLE_CLIENT_ID,
 });
+

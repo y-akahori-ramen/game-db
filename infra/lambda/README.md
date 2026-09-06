@@ -64,60 +64,37 @@ Grant the Lambda execution role (`searchIndex.table.grantReadData` covers all of
 - `s3:GetObject` on `runs/*` in the data bucket.
 - `dynamodb:PutItem` on the table (`table.grantWriteData`).
 
-## `auth-cookie/index.py`
+## `edge-auth/index.js`
 
-### Route / behavior
+### Trigger / behavior
 
-- Intended route: `GET /api/auth/cookie`
-- Assumes API Gateway REST API + Cognito authorizer has already authenticated the caller.
-- Returns CloudFront signed-cookie `Set-Cookie` headers for `/data/*` via `multiValueHeaders`:
-  - `CloudFront-Policy`
-  - `CloudFront-Signature`
-  - `CloudFront-Key-Pair-Id`
+- Deployed as a **Lambda@Edge Viewer Request** function in `us-east-1` (`EdgeStack`).
+- Intercepts viewer requests for SPA static files, data artifacts (`/data/*`), and API routes (`/api/*`).
+- Handles the OAuth 2.0 callback (`/_callback`):
+  1. Exchanges authorization code with Google (`https://oauth2.googleapis.com/token`).
+  2. Verifies ID token signature against Google JWKS (`https://www.googleapis.com/oauth2/v3/certs`).
+  3. Verifies `aud`, `iss`, expiration, and domain restriction (`hd`) or email allowlist.
+  4. Sets session cookie `TOKEN=<id_token>; Path=/; Secure; HttpOnly; SameSite=Lax`.
+  5. Redirects (302) to the original requested URL.
+- On subsequent requests:
+  - Validates `TOKEN` session cookie.
+  - If valid, passes through to CloudFront origin (S3 or API Gateway).
+  - If unauthenticated:
+    - `/api/*`: returns 401 Unauthorized JSON.
+    - Browser routes: 302 redirects to Google OAuth 2.0 authorization endpoint (`https://accounts.google.com/o/oauth2/v2/auth`).
 
-### Required environment variables
+### Configuration & Secrets Manager
 
-- `SIGNING_KEY_SECRET_ARN`
-  - Set from `signingKeys.privateKeySecret.secretArn` (or secret name).
-- `CLOUDFRONT_KEY_PAIR_ID`
-  - Set from `signingKeys.publicKey.publicKeyId`.
-- `CLOUDFRONT_DOMAIN`
-  - Set to the CloudFront distribution domain name, e.g. `d123456abcdef8.cloudfront.net`.
-- `COOKIE_TTL_SECONDS`
-  - Optional. Default `43200` (12 hours).
+- Reads Google Client ID, Client Secret, and optional allowedDomain / allowedEmails from Secrets Manager in `us-east-1` (`GameQaDashboard/GoogleOidcConfig`).
+- Caches configuration and JWKS public keys in memory across invocations.
 
 ### IAM permissions
 
-Grant the Lambda execution role:
+- AssumeRole policy: `lambda.amazonaws.com` and `edgelambda.amazonaws.com`.
+- Managed policy: `service-role/AWSLambdaBasicExecutionRole`.
+- Policy: `secretsmanager:GetSecretValue` on the Google OIDC configuration secret.
 
-- `secretsmanager:GetSecretValue`
-  - Scope to `signingKeys.privateKeySecret.secretArn` only.
+### Zero-dependency implementation
 
-### Packaging requirement
-
-This handler imports `cryptography` to produce CloudFront's required RSA-SHA1 signature.
-AWS Lambda Python runtimes do not bundle `cryptography` by default, so the wiring step must do one of the following:
-
-- Preferably create the function with a bundling construct such as `PythonFunction` that installs `infra/lambda/auth-cookie/requirements.txt` into the deployment artifact.
-- Or attach a Lambda Layer that contains a runtime-compatible build of `cryptography`.
-
-If using `PythonFunction`, remember the CDK app does not currently depend on `@aws-cdk/aws-lambda-python-alpha`, so that package may need to be added at a version compatible with the installed CDK release.
-
-## Sandbox-safe packaging note for `auth-cookie`
-
-This repository's current CDK wiring uses plain `lambda.Code.fromAsset('infra/lambda/auth-cookie')`
-so that `npm run build` and `cdk synth` stay Docker-free in environments where Docker is not
-available. That means `cryptography` is **not** installed automatically during synth.
-
-Before a real deploy, package the dependency into the asset directory (or provide an equivalent
-runtime-compatible Lambda Layer) yourself, for example:
-
-```sh
-pip install -r infra/lambda/auth-cookie/requirements.txt -t infra/lambda/auth-cookie/vendor
-```
-
-If you vendor into `vendor/`, also ensure the handler package path includes that directory or switch
-the function to a proper bundling flow. In a non-sandboxed CI/developer environment with Docker
-available, the preferred follow-up is to replace the plain asset wiring with `PythonFunction`
-(`@aws-cdk/aws-lambda-python-alpha`) so requirements are installed automatically as part of the
-deployment artifact build.
+- Implemented in Node.js 22 using standard library APIs (`node:crypto`, global `fetch`) and the Lambda runtime-bundled `@aws-sdk/client-secrets-manager`.
+- Does not require Docker, pip, or external node_modules bundling during `cdk synth` / `cdk deploy`.

@@ -34,7 +34,7 @@ game-db/
 ├── infra/               # AWS CDK (TypeScript) インフラコード
 │   ├── bin/             # CDK エントリポイント (EdgeStack [us-east-1] + MainStack [ap-northeast-1])
 │   ├── lib/             # CDK スタック・コンストラクト定義 (WAF, S3, DynamoDB, API GW, OIDC)
-│   └── lambda/          # Lambda 関数 (manifest-indexer, search, auth-cookie)
+│   └── lambda/          # Lambda 関数 (manifest-indexer, search, edge-auth)
 ├── scripts/             # ローカル開発・検証支援スクリプト
 │   ├── test_local_pipeline.py # Stage 2 パイプライン検証テスト (moto / LocalStack)
 │   └── init-localstack.sh     # LocalStack 初期化スクリプト (S3バケット・DynamoDBテーブル作成)
