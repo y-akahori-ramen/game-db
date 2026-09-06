@@ -31,6 +31,11 @@
         "type": "video"
       },
       {
+        "url": "sample_data/run-001/video_boss_fight.mp4",
+        "fileName": "video_boss_fight.mp4",
+        "type": "video"
+      },
+      {
         "url": "sample_data/run-001/screenshot_001.png",
         "fileName": "screenshot_001.png",
         "type": "screenshot"

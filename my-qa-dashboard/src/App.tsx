@@ -11,7 +11,6 @@ import {
   MemoryStick,
   ScrollText,
   Share2,
-  Video,
   XCircle,
 } from 'lucide-react';
 import { useDuckDB, FPS_CSV_FILE, MEMORY_CSV_FILE } from './hooks/useDuckDB';
@@ -21,6 +20,7 @@ import LogTable, { UE_LOG_TABLE } from './components/LogTable';
 import SearchPage from './components/SearchPage';
 import ComparePage from './components/ComparePage';
 import ArtifactsPanel from './components/ArtifactsPanel';
+import MediaViewer from './components/MediaViewer';
 import { useAppRouter } from './router';
 import { parseUeLogText } from './utils/ueLogParser';
 import { searchService } from './services';
@@ -58,8 +58,6 @@ export default function App() {
   const [loadingData, setLoadingData] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  const videoRef = useRef<HTMLVideoElement>(null);
 
   const fpsFileInputRef = useRef<HTMLInputElement>(null);
   const [fpsFileName, setFpsFileName] = useState<string | null>(null);
@@ -162,16 +160,6 @@ export default function App() {
       setSelectedRun(null);
     }
   }, [route, selectedRun?.runId, loadRunData]);
-
-  // Video seeking sync with queryParams.t
-  useEffect(() => {
-    if (queryParams.t !== undefined && videoRef.current) {
-      const diff = Math.abs(videoRef.current.currentTime - queryParams.t);
-      if (diff > 0.5) {
-        videoRef.current.currentTime = queryParams.t;
-      }
-    }
-  }, [queryParams.t]);
 
   const handleOpenRun = useCallback(
     (run: TestRunSummary) => {
@@ -348,42 +336,17 @@ export default function App() {
             <ArtifactsPanel runId={selectedRun.runId} artifacts={selectedRun.artifacts} />
           )}
 
-          {/* Gameplay video (only present for runs that captured one) */}
-          {selectedRun?.videoUrl && (
-            <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300">
-                  <Video size={16} className="text-purple-400" /> Gameplay Video
-                </h2>
-                {queryParams.t !== undefined && (
-                  <span className="text-xs text-slate-400 font-mono">
-                    Time: {queryParams.t.toFixed(1)}s
-                  </span>
-                )}
-              </div>
-              <div className="flex justify-center bg-black rounded-md">
-                <video
-                  ref={videoRef}
-                  key={selectedRun.videoUrl}
-                  controls
-                  preload="metadata"
-                  className="max-h-[480px] w-full max-w-3xl"
-                  src={`${import.meta.env.BASE_URL}${selectedRun.videoUrl}`}
-                  onLoadedMetadata={() => {
-                    if (queryParams.t && videoRef.current) {
-                      videoRef.current.currentTime = queryParams.t;
-                    }
-                  }}
-                  onSeeked={() => {
-                    if (videoRef.current) {
-                      updateQueryParams({ t: videoRef.current.currentTime }, true);
-                    }
-                  }}
-                >
-                  お使いのブラウザは動画再生に対応していません。
-                </video>
-              </div>
-            </section>
+          {/* Media Viewer (Gameplay videos and screenshots) */}
+          {selectedRun && (
+            <MediaViewer
+              runId={selectedRun.runId}
+              artifacts={selectedRun.artifacts}
+              videoUrl={selectedRun.videoUrl}
+              currentTime={queryParams.t}
+              selectedMediaFileName={queryParams.media}
+              onSeekTime={(t) => updateQueryParams({ t }, true)}
+              onSelectMedia={(mediaName) => updateQueryParams({ media: mediaName }, true)}
+            />
           )}
 
           {/* Metrics panels */}

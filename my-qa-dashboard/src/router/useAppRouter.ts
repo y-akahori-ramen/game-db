@@ -13,6 +13,7 @@ export interface QueryParams {
   gameVersion?: string;
   platform?: string;
   status?: string;
+  media?: string;
 }
 
 function getNormalizedPathname(): string {
@@ -37,6 +38,7 @@ function parseRoute(): { route: RouteState; params: QueryParams } {
   const gameVersionParam = searchParams.get('gameVersion') || searchParams.get('version');
   const platformParam = searchParams.get('platform');
   const statusParam = searchParams.get('status');
+  const mediaParam = searchParams.get('media');
 
   const params: QueryParams = {};
   if (tParam !== null && !isNaN(Number(tParam))) {
@@ -49,6 +51,7 @@ function parseRoute(): { route: RouteState; params: QueryParams } {
   if (gameVersionParam) params.gameVersion = gameVersionParam;
   if (platformParam) params.platform = platformParam;
   if (statusParam) params.status = statusParam;
+  if (mediaParam) params.media = mediaParam;
 
 
   // Matches /compare/:runA/:runB
@@ -120,6 +123,7 @@ function buildUrl(path: string, params?: QueryParams): string {
   if (params?.gameVersion) searchParams.set('gameVersion', params.gameVersion);
   if (params?.platform) searchParams.set('platform', params.platform);
   if (params?.status) searchParams.set('status', params.status);
+  if (params?.media) searchParams.set('media', params.media);
 
   const query = searchParams.toString();
   return query ? `${fullPath}?${query}` : fullPath;
@@ -180,6 +184,7 @@ export function useAppRouter() {
         if (!mergedParams.gameVersion) delete mergedParams.gameVersion;
         if (!mergedParams.platform) delete mergedParams.platform;
         if (!mergedParams.status) delete mergedParams.status;
+        if (!mergedParams.media) delete mergedParams.media;
 
         let currentPath = '/';
         if (prev.route.name === 'dashboard' && prev.route.runId) {

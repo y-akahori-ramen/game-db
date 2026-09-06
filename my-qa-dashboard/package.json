@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --experimental-strip-types scripts/test_log_analysis.ts",
+    "test": "node --experimental-strip-types scripts/test_log_analysis.ts && node --experimental-strip-types scripts/test_media_viewer.ts",
     "preview": "vite preview"
   },
   "dependencies": {

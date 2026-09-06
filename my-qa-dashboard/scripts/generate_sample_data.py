@@ -69,6 +69,7 @@ class RunSpec:
     drops: list[tuple[int, int, int]]  # (start_sec, length_sec, floor_fps)
     levels: list[str] = field(default_factory=lambda: ["PL_Level1", "PL_Level2"])
     video: bool = False  # whether this run has a captured gameplay video
+    video_files: list[str] = field(default_factory=list)  # additional video files to include
     screenshots: int = 0  # number of dummy screenshot PNGs to generate
     extra_artifacts: list[tuple[str, str, str | bytes]] = field(default_factory=list)
 
@@ -85,6 +86,7 @@ RUNS = [
         base_fps=55,
         drops=[(60, 8, 22), (145, 5, 15), (230, 12, 25)],
         video=True,
+        video_files=["video_boss_fight.mp4"],
         screenshots=3,
         extra_artifacts=[
             ("crash.dmp", "crashdump", b"MDMP\x93\xa7\x00\x00\x01\x00\x00\x00\x20\x00\x00\x00"),
@@ -363,6 +365,12 @@ def main() -> None:
         ]
         if video_url:
             artifacts.append({"url": video_url, "fileName": "video.mp4", "type": "video"})
+        for extra_video in spec.video_files:
+            extra_video_path = run_dir / extra_video
+            shutil.copyfile(SOURCE_VIDEO, extra_video_path)
+            extra_video_url = f"sample_data/{spec.run_id}/{extra_video}"
+            artifacts.append({"url": extra_video_url, "fileName": extra_video, "type": "video"})
+            print(f"wrote {extra_video_path}")
         for shot_url in screenshot_urls:
             artifacts.append({"url": shot_url, "fileName": Path(shot_url).name, "type": "screenshot"})
         for extra_name, extra_type, extra_content in spec.extra_artifacts:
