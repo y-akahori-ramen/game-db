@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { parseUeLogText } from '../utils/ueLogParser';
+import { useFullscreen } from '../hooks/useFullscreen';
 import {
   buildLogSearchCondition,
   escapeSql,
@@ -92,6 +93,7 @@ export default function LogTable({
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const { containerRef, isFullscreen, toggleFullscreen } = useFullscreen<HTMLDivElement>();
   const searchInputId = useId();
 
   // Local file upload state
@@ -116,7 +118,6 @@ export default function LogTable({
 
   // UI display options
   const [wordWrap, setWordWrap] = useState(true);
-  const [isExpanded, setIsExpanded] = useState(false);
   const [copiedLine, setCopiedLine] = useState<number | null>(null);
   const [copiedLinkLine, setCopiedLinkLine] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -405,16 +406,17 @@ export default function LogTable({
 
   return (
     <div
+      ref={containerRef}
       className={`flex flex-col transition-all ${
-        isExpanded
-          ? 'fixed inset-4 z-50 rounded-xl border border-slate-700 bg-slate-950 p-5 shadow-2xl overflow-hidden'
+        isFullscreen
+          ? 'fixed inset-0 z-50 rounded-none bg-slate-950 p-4 overflow-hidden'
           : 'h-full'
       }`}
     >
       {/* Top action bar: File upload & View customization */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800/80 mb-3">
         <div className="flex flex-wrap items-center gap-3">
-          {isExpanded && (
+          {isFullscreen && (
             <span className="text-sm font-semibold text-slate-200 mr-2 flex items-center gap-2">
               <span className="inline-block w-2 h-2 rounded-full bg-cyan-400"></span>
               Log Analyzer (Fullscreen)
@@ -444,9 +446,10 @@ export default function LogTable({
           )}
         </div>
 
-        {/* View toggles: Word wrap & Expand/Fullscreen */}
+        {/* View toggles: Word wrap & Fullscreen */}
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={() => setWordWrap(!wordWrap)}
             className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
               wordWrap
@@ -460,16 +463,16 @@ export default function LogTable({
           </button>
 
           <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
-              isExpanded
+            type="button"
+            onClick={toggleFullscreen}
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors ${
+              isFullscreen
                 ? 'border-cyan-500/50 bg-cyan-950/40 text-cyan-300 font-semibold'
-                : 'border-slate-700 bg-slate-800/60 text-slate-400 hover:text-slate-200'
+                : 'border-slate-800 bg-slate-950/80 text-slate-300 hover:bg-slate-800 hover:text-white'
             }`}
-            title={isExpanded ? '通常表示に戻す' : '全画面に拡大表示'}
+            title={isFullscreen ? '全画面終了' : '全画面表示'}
           >
-            {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-            <span>{isExpanded ? '縮小' : '拡大'}</span>
+            {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
         </div>
       </div>
@@ -808,7 +811,7 @@ export default function LogTable({
       <div
         ref={tableContainerRef}
         className={`overflow-y-auto overflow-x-auto rounded-md border border-slate-800 bg-slate-950/40 ${
-          isExpanded ? 'flex-1 min-h-[500px]' : 'max-h-[520px]'
+          isFullscreen ? 'flex-1 min-h-0' : 'max-h-[520px]'
         }`}
       >
         <table className="w-full table-fixed text-xs border-collapse">

@@ -5,14 +5,19 @@ import {
   ArrowLeft,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   FileUp,
   Gauge,
   Loader2,
+  Maximize2,
   MemoryStick,
+  Minimize2,
   ScrollText,
   Share2,
   XCircle,
 } from 'lucide-react';
+import { useFullscreen } from './hooks/useFullscreen';
 import { useDuckDB, FPS_CSV_FILE, MEMORY_CSV_FILE } from './hooks/useDuckDB';
 import FpsChart from './components/FpsChart';
 import MemoryChart from './components/MemoryChart';
@@ -64,12 +69,27 @@ export default function App() {
   const [fpsUploaded, setFpsUploaded] = useState(false);
   const [fpsFileLoading, setFpsFileLoading] = useState(false);
   const [fpsFileError, setFpsFileError] = useState<string | null>(null);
+  const {
+    containerRef: fpsContainerRef,
+    isFullscreen: isFpsFullscreen,
+    toggleFullscreen: toggleFpsFullscreen,
+  } = useFullscreen<HTMLElement>();
 
   const memoryFileInputRef = useRef<HTMLInputElement>(null);
   const [memoryFileName, setMemoryFileName] = useState<string | null>(null);
   const [memoryUploaded, setMemoryUploaded] = useState(false);
   const [memoryFileLoading, setMemoryFileLoading] = useState(false);
   const [memoryFileError, setMemoryFileError] = useState<string | null>(null);
+  const {
+    containerRef: memoryContainerRef,
+    isFullscreen: isMemoryFullscreen,
+    toggleFullscreen: toggleMemoryFullscreen,
+  } = useFullscreen<HTMLElement>();
+
+  // Collapsible panel expansion states (default expanded except artifacts)
+  const [fpsExpanded, setFpsExpanded] = useState(true);
+  const [memoryExpanded, setMemoryExpanded] = useState(true);
+  const [logExpanded, setLogExpanded] = useState(true);
 
   const fpsReady = dataLoaded || fpsUploaded;
   const memoryReady = dataLoaded || memoryUploaded;
@@ -196,6 +216,7 @@ export default function App() {
         setFpsData(fps);
         setFpsFileName(file.name);
         setFpsUploaded(true);
+        setFpsExpanded(true);
       } catch (err) {
         setFpsFileError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -220,6 +241,7 @@ export default function App() {
         setMemoryData(memory);
         setMemoryFileName(file.name);
         setMemoryUploaded(true);
+        setMemoryExpanded(true);
       } catch (err) {
         setMemoryFileError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -371,12 +393,34 @@ export default function App() {
           )}
 
           {/* Metrics panels */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+            <section
+              ref={fpsContainerRef}
+              className={`rounded-lg border border-slate-800 bg-slate-900/60 shadow-xl backdrop-blur-sm transition-all h-fit self-start ${
+                isFpsFullscreen
+                  ? 'fixed inset-0 z-50 rounded-none bg-slate-950 p-4 flex flex-col'
+                  : 'p-4'
+              }`}
+            >
+              <div
+                className={`flex flex-wrap items-center justify-between gap-2 ${
+                  fpsExpanded || isFpsFullscreen ? 'mb-2' : ''
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setFpsExpanded((prev) => !prev)}
+                  aria-expanded={fpsExpanded}
+                  className="flex items-center gap-2 text-sm font-semibold text-slate-300 hover:text-slate-100 cursor-pointer"
+                >
+                  {fpsExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                   <Gauge size={16} className="text-cyan-400" /> FPS / Frame Time
-                </h2>
+                  {isFpsFullscreen && (
+                    <span className="text-xs text-slate-400 font-normal ml-2">
+                      (全画面表示)
+                    </span>
+                  )}
+                </button>
                 <div className="flex items-center gap-2">
                   <input
                     ref={fpsFileInputRef}
@@ -397,24 +441,58 @@ export default function App() {
                     )}
                     {fpsFileLoading ? '読み込み中...' : 'ローカルのFPSログを開く'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={toggleFpsFullscreen}
+                    title={isFpsFullscreen ? '全画面終了' : '全画面表示'}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-800 bg-slate-950/80 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+                  >
+                    {isFpsFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                  </button>
                 </div>
               </div>
-              {fpsFileError && <p className="mb-2 text-xs text-red-400">読み込みエラー: {fpsFileError}</p>}
-              {fpsUploaded && fpsFileName && (
-                <p className="mb-2 text-xs text-slate-500">{fpsFileName}</p>
-              )}
-              {fpsReady && fpsData.length > 0 ? (
-                <FpsChart data={fpsData} />
-              ) : (
-                <Placeholder message={selectedRun && !selectedRun.fpsDataUrl && !fpsUploaded ? 'このテスト実行には FPS データがありません。' : 'Open a test run or a local file to render chart.'} />
+              {(fpsExpanded || isFpsFullscreen) && (
+                <div>
+                  {fpsFileError && <p className="mb-2 text-xs text-red-400">読み込みエラー: {fpsFileError}</p>}
+                  {fpsUploaded && fpsFileName && (
+                    <p className="mb-2 text-xs text-slate-500">{fpsFileName}</p>
+                  )}
+                  {fpsReady && fpsData.length > 0 ? (
+                    <FpsChart data={fpsData} isFullscreen={isFpsFullscreen} />
+                  ) : (
+                    <Placeholder message={selectedRun && !selectedRun.fpsDataUrl && !fpsUploaded ? 'このテスト実行には FPS データがありません。' : 'Open a test run or a local file to render chart.'} />
+                  )}
+                </div>
               )}
             </section>
 
-            <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+            <section
+              ref={memoryContainerRef}
+              className={`rounded-lg border border-slate-800 bg-slate-900/60 shadow-xl backdrop-blur-sm transition-all h-fit self-start ${
+                isMemoryFullscreen
+                  ? 'fixed inset-0 z-50 rounded-none bg-slate-950 p-4 flex flex-col overflow-y-auto'
+                  : 'p-4'
+              }`}
+            >
+              <div
+                className={`flex flex-wrap items-center justify-between gap-2 ${
+                  memoryExpanded || isMemoryFullscreen ? 'mb-2' : ''
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setMemoryExpanded((prev) => !prev)}
+                  aria-expanded={memoryExpanded}
+                  className="flex items-center gap-2 text-sm font-semibold text-slate-300 hover:text-slate-100 cursor-pointer"
+                >
+                  {memoryExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                   <MemoryStick size={16} className="text-green-400" /> Memory Usage
-                </h2>
+                  {isMemoryFullscreen && (
+                    <span className="text-xs text-slate-400 font-normal ml-2">
+                      (全画面表示)
+                    </span>
+                  )}
+                </button>
                 <div className="flex items-center gap-2">
                   <input
                     ref={memoryFileInputRef}
@@ -435,35 +513,61 @@ export default function App() {
                     )}
                     {memoryFileLoading ? '読み込み中...' : 'ローカルのメモリログを開く'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={toggleMemoryFullscreen}
+                    title={isMemoryFullscreen ? '全画面終了' : '全画面表示'}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-800 bg-slate-950/80 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+                  >
+                    {isMemoryFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                  </button>
                 </div>
               </div>
-              {memoryFileError && (
-                <p className="mb-2 text-xs text-red-400">読み込みエラー: {memoryFileError}</p>
-              )}
-              {memoryUploaded && memoryFileName && (
-                <p className="mb-2 text-xs text-slate-500">{memoryFileName}</p>
-              )}
-              {memoryReady && memoryData.length > 0 ? (
-                <MemoryChart data={memoryData} />
-              ) : (
-                <Placeholder message={selectedRun && !selectedRun.memoryDataUrl && !memoryUploaded ? 'このテスト実行には メモリデータがありません。' : 'Open a test run or a local file to render chart.'} />
+              {(memoryExpanded || isMemoryFullscreen) && (
+                <div>
+                  {memoryFileError && (
+                    <p className="mb-2 text-xs text-red-400">読み込みエラー: {memoryFileError}</p>
+                  )}
+                  {memoryUploaded && memoryFileName && (
+                    <p className="mb-2 text-xs text-slate-500">{memoryFileName}</p>
+                  )}
+                  {memoryReady && memoryData.length > 0 ? (
+                    <MemoryChart data={memoryData} isFullscreen={isMemoryFullscreen} />
+                  ) : (
+                    <Placeholder message={selectedRun && !selectedRun.memoryDataUrl && !memoryUploaded ? 'このテスト実行には メモリデータがありません。' : 'Open a test run or a local file to render chart.'} />
+                  )}
+                </div>
               )}
             </section>
           </div>
 
           {/* Log analyzer panel */}
           <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-300">
-              <ScrollText size={16} className="text-yellow-400" /> Log Analyzer
-            </h2>
-            <LogTable
-              executeQuery={executeQuery}
-              loadRowsAsTable={loadRowsAsTable}
-              logsReady={dataLoaded}
-              dbReady={status === 'ready'}
-              targetLine={queryParams.log}
-              onSelectLine={handleSelectLine}
-            />
+            <div
+              className={`flex flex-wrap items-center justify-between gap-2 ${
+                logExpanded ? 'mb-3' : ''
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setLogExpanded((prev) => !prev)}
+                aria-expanded={logExpanded}
+                className="flex items-center gap-2 text-sm font-semibold text-slate-300 hover:text-slate-100 cursor-pointer"
+              >
+                {logExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <ScrollText size={16} className="text-yellow-400" /> Log Analyzer
+              </button>
+            </div>
+            {logExpanded && (
+              <LogTable
+                executeQuery={executeQuery}
+                loadRowsAsTable={loadRowsAsTable}
+                logsReady={dataLoaded}
+                dbReady={status === 'ready'}
+                targetLine={queryParams.log}
+                onSelectLine={handleSelectLine}
+              />
+            )}
           </section>
         </main>
       )}

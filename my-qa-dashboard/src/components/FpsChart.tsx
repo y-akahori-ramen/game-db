@@ -4,6 +4,7 @@ import type { FpsMetric } from '../types';
 
 interface Props {
   data: FpsMetric[];
+  isFullscreen?: boolean;
 }
 
 const SERIES: { key: keyof FpsMetric; name: string; color: string }[] = [
@@ -14,7 +15,7 @@ const SERIES: { key: keyof FpsMetric; name: string; color: string }[] = [
   { key: 'RHIThreadTime', name: 'RHIThreadTime', color: '#34d399' },
 ];
 
-function FpsChart({ data }: Props) {
+function FpsChart({ data, isFullscreen = false }: Props) {
   // ElapsedTime is the shared x-axis; PersistentLevel is looked up per-point
   // for the tooltip rather than plotted as its own series.
   const option = useMemo(() => {
@@ -83,7 +84,15 @@ function FpsChart({ data }: Props) {
     };
   }, [data]);
 
-  return <ReactECharts option={option} style={{ height: 320 }} notMerge />;
+  return (
+    <div className={isFullscreen ? 'flex-1 min-h-0 w-full' : 'w-full'}>
+      <ReactECharts
+        option={option}
+        style={{ height: isFullscreen ? 'calc(100vh - 100px)' : 320, width: '100%' }}
+        notMerge
+      />
+    </div>
+  );
 }
 
 export default memo(FpsChart);

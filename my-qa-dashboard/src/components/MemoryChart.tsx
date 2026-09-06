@@ -4,6 +4,7 @@ import type { MemoryMetric } from '../types';
 
 interface Props {
   data: MemoryMetric[];
+  isFullscreen?: boolean;
 }
 
 const TRACKED_TOTAL_KEY = 'TrackedTotal';
@@ -23,7 +24,7 @@ const PALETTE = [
   '#14b8a6',
 ];
 
-function MemoryChart({ data }: Props) {
+function MemoryChart({ data, isFullscreen = false }: Props) {
   // Columns are not known ahead of time: they vary by platform, so they are
   // derived from whatever keys are present on the first row of the loaded data.
   const columns = useMemo(() => {
@@ -125,7 +126,7 @@ function MemoryChart({ data }: Props) {
           ))}
         </div>
       )}
-      <ReactECharts option={option} style={{ height: 320 }} notMerge />
+      <ReactECharts option={option} style={{ height: isFullscreen ? 500 : 320 }} notMerge />
       {peaks.length > 0 && (
         <div className="mt-2 rounded-md border border-slate-800 bg-slate-950/40 p-2">
           <span className="mb-1.5 block text-xs text-slate-500">ピーク値 (MB):</span>

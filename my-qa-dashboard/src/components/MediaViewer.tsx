@@ -5,6 +5,7 @@ import {
   Grid,
   List,
   Search,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -21,6 +22,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import type { TestRunArtifact } from '../services';
+import { useFullscreen } from '../hooks/useFullscreen';
 import {
   extractMediaItems,
   isWebOptimizedVideo,
@@ -58,15 +60,15 @@ export default function MediaViewer({
   }, [artifacts, videoUrl]);
 
   // View preferences
+  const [expanded, setExpanded] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const { containerRef, isFullscreen, toggleFullscreen } = useFullscreen<HTMLElement>();
 
   const videoElementRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   // Selected media item state
   const [selectedId, setSelectedId] = useState<string | null>(() => {
@@ -194,32 +196,6 @@ export default function MediaViewer({
     [resolveUrl],
   );
 
-  // Fullscreen toggle for container
-  const toggleFullscreen = useCallback(async () => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      try {
-        await containerRef.current.requestFullscreen();
-        setIsFullscreen(true);
-      } catch {
-        // Fullscreen not supported or blocked
-      }
-    } else {
-      if (document.exitFullscreen) {
-        await document.exitFullscreen();
-        setIsFullscreen(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const onFsChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
-    };
-    document.addEventListener('fullscreenchange', onFsChange);
-    return () => document.removeEventListener('fullscreenchange', onFsChange);
-  }, []);
-
   const videoCount = mediaItems.filter((i) => i.type === 'video').length;
   const screenshotCount = mediaItems.filter((i) => i.type === 'screenshot').length;
 
@@ -237,13 +213,23 @@ export default function MediaViewer({
       }`}
     >
       {/* OS File Explorer Window Title Bar */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+      <div
+        className={`flex flex-wrap items-center justify-between gap-3 ${
+          expanded || isFullscreen ? 'border-b border-slate-800/80 pb-3 mb-3' : ''
+        }`}
+      >
         <div className="flex items-center gap-3">
-          {/* Section Title */}
-          <h2 className="flex items-center gap-2 text-sm font-semibold tracking-wide text-slate-200">
+          {/* Section Title Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            aria-expanded={expanded}
+            className="flex items-center gap-2 text-sm font-semibold tracking-wide text-slate-200 hover:text-white cursor-pointer"
+          >
+            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             <Film size={17} className="text-purple-400" />
             Media Viewer
-          </h2>
+          </button>
 
           <span className="rounded-full bg-slate-800/80 px-2 py-0.5 text-[11px] font-medium text-slate-400">
             {mediaItems.length} items
@@ -251,50 +237,54 @@ export default function MediaViewer({
         </div>
 
         {/* Explorer Breadcrumb / Address Bar */}
-        <div className="hidden lg:flex items-center gap-1.5 rounded-md border border-slate-800 bg-slate-950/80 px-2.5 py-1 text-xs text-slate-400 font-mono">
-          <Folder size={13} className="text-cyan-400" />
-          <span>runs</span>
-          <span className="text-slate-600">/</span>
-          <span className="text-slate-300">{runId}</span>
-          <span className="text-slate-600">/</span>
-          <span className="text-slate-400">media</span>
-          {selectedItem && (
-            <>
-              <span className="text-slate-600">/</span>
-              <span className="text-cyan-300 font-medium">{selectedItem.fileName}</span>
-            </>
-          )}
-        </div>
+        {(expanded || isFullscreen) && (
+          <div className="hidden lg:flex items-center gap-1.5 rounded-md border border-slate-800 bg-slate-950/80 px-2.5 py-1 text-xs text-slate-400 font-mono">
+            <Folder size={13} className="text-cyan-400" />
+            <span>runs</span>
+            <span className="text-slate-600">/</span>
+            <span className="text-slate-300">{runId}</span>
+            <span className="text-slate-600">/</span>
+            <span className="text-slate-400">media</span>
+            {selectedItem && (
+              <>
+                <span className="text-slate-600">/</span>
+                <span className="text-cyan-300 font-medium">{selectedItem.fileName}</span>
+              </>
+            )}
+          </div>
+        )}
 
         {/* View Controls & Fullscreen Toggle */}
         <div className="flex items-center gap-2">
           {/* Grid / List View Toggle */}
-          <div className="flex items-center rounded-md border border-slate-800 bg-slate-950/80 p-0.5">
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              title="グリッド表示 (Grid View)"
-              className={`rounded p-1 transition-colors ${
-                viewMode === 'grid'
-                  ? 'bg-slate-800 text-cyan-400 shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Grid size={15} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('list')}
-              title="リスト表示 (List View)"
-              className={`rounded p-1 transition-colors ${
-                viewMode === 'list'
-                  ? 'bg-slate-800 text-cyan-400 shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <List size={15} />
-            </button>
-          </div>
+          {(expanded || isFullscreen) && (
+            <div className="flex items-center rounded-md border border-slate-800 bg-slate-950/80 p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                title="グリッド表示 (Grid View)"
+                className={`rounded p-1 transition-colors ${
+                  viewMode === 'grid'
+                    ? 'bg-slate-800 text-cyan-400 shadow-xs'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Grid size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                title="リスト表示 (List View)"
+                className={`rounded p-1 transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-slate-800 text-cyan-400 shadow-xs'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <List size={15} />
+              </button>
+            </div>
+          )}
 
           {/* Fullscreen Button */}
           <button
@@ -309,7 +299,8 @@ export default function MediaViewer({
       </div>
 
       {/* Media Viewer Main Container: Split Layout (Explorer Left + Preview Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      {(expanded || isFullscreen) && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Left Column: File Explorer Pane */}
         <div className="lg:col-span-4 xl:col-span-4 flex flex-col rounded-lg border border-slate-800/80 bg-slate-950/50 overflow-hidden">
           {/* Explorer Filter Toolbar */}
@@ -725,6 +716,7 @@ export default function MediaViewer({
           </div>
         </div>
       </div>
+      )}
     </section>
   );
 }
