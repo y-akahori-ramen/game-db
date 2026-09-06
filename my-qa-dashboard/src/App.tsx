@@ -18,7 +18,6 @@ import MemoryChart from './components/MemoryChart';
 import LogTable, { UE_LOG_TABLE } from './components/LogTable';
 import SearchPage from './components/SearchPage';
 import ArtifactsPanel from './components/ArtifactsPanel';
-import { CallbackPage, useAuthGuard } from './auth';
 import { parseUeLogText } from './utils/ueLogParser';
 import type { TestRunSummary } from './services';
 import type { FpsMetric, MemoryMetric } from './types';
@@ -34,29 +33,6 @@ function fromClause(name: string): string {
 }
 
 export default function App() {
-  const { authError, isCallbackRoute, isRedirecting } = useAuthGuard();
-
-  if (isCallbackRoute) {
-    return <CallbackPage />;
-  }
-
-  if (authError) {
-    return <AuthStatusPage message={authError} title="認証エラー" tone="error" />;
-  }
-
-  if (isRedirecting) {
-    return (
-      <AuthStatusPage
-        message="Cognito Hosted UI にリダイレクトしています。"
-        title="ログインへ移動しています"
-      />
-    );
-  }
-
-  return <DashboardApp />;
-}
-
-function DashboardApp() {
   const { status, error, loadRemoteFile, executeQuery, loadRowsAsTable, loadLocalCsvFile } =
     useDuckDB();
   const [view, setView] = useState<'search' | 'dashboard'>('search');
@@ -371,29 +347,6 @@ function Placeholder() {
   return (
     <div className="flex h-80 items-center justify-center text-sm text-slate-600">
       Open a test run or a local file to render chart.
-    </div>
-  );
-}
-
-interface AuthStatusPageProps {
-  message: string;
-  title: string;
-  tone?: 'default' | 'error';
-}
-
-function AuthStatusPage({
-  message,
-  title,
-  tone = 'default',
-}: AuthStatusPageProps) {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-slate-100">
-      <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-6 py-5 text-center">
-        <p className="text-sm font-medium text-slate-200">{title}</p>
-        <p className={`mt-2 text-sm ${tone === 'error' ? 'text-red-400' : 'text-slate-400'}`}>
-          {message}
-        </p>
-      </div>
     </div>
   );
 }
