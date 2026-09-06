@@ -52,7 +52,6 @@ export default function SearchPage({
   const [platform, setPlatform] = useState(initialFilters?.platform || '');
   const [status, setStatus] = useState(initialFilters?.status || '');
 
-  const [availableTestNames, setAvailableTestNames] = useState<string[]>([]);
   const [runs, setRuns] = useState<TestRunSummary[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -62,18 +61,6 @@ export default function SearchPage({
   const [sortField, setSortField] = useState<SortField>('timestamp');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
-  // Fetch available test names once on mount
-  useEffect(() => {
-    void (async () => {
-      try {
-        const allRuns = await searchService.searchRuns({});
-        const names = Array.from(new Set(allRuns.map((r) => r.testName))).sort();
-        setAvailableTestNames(names);
-      } catch {
-        // Fallback silently if fetching test names fails
-      }
-    })();
-  }, []);
 
   const runSearchWith = useCallback(
     async (filters: SearchFilter) => {
@@ -204,26 +191,18 @@ export default function SearchPage({
         className="rounded-lg border border-slate-800 bg-slate-900/40 p-4 space-y-3"
       >
         <div className="flex flex-wrap items-end gap-4">
-          {/* Test Name Filter with Datalist Suggestions */}
+          {/* Test Name Filter */}
           <label className="flex flex-col gap-1 text-xs text-slate-400">
             <span className="flex items-center gap-1 font-medium text-slate-300">
               <Filter size={12} className="text-cyan-400" /> Test Name (テストケース)
             </span>
-            <div className="relative">
-              <input
-                type="text"
-                list="test-names-datalist"
-                value={testName}
-                onChange={(e) => setTestName(e.target.value)}
-                placeholder="Level1_Playthrough"
-                className="w-56 bg-slate-800 border border-slate-700 rounded-md px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
-              />
-              <datalist id="test-names-datalist">
-                {availableTestNames.map((name) => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
-            </div>
+            <input
+              type="text"
+              value={testName}
+              onChange={(e) => setTestName(e.target.value)}
+              placeholder="Level1_Playthrough"
+              className="w-56 bg-slate-800 border border-slate-700 rounded-md px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+            />
           </label>
 
           {/* Game Version */}
@@ -297,31 +276,6 @@ export default function SearchPage({
           </div>
         </div>
 
-        {/* Quick Test Name Filter Chips */}
-        {availableTestNames.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-800/80 text-xs">
-            <span className="text-slate-500">クイック絞り込み:</span>
-            {availableTestNames.map((name) => {
-              const isActive = testName === name;
-              return (
-                <button
-                  key={name}
-                  type="button"
-                  onClick={() => handleFilterByTestName(isActive ? '' : name)}
-                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 transition-colors ${
-                    isActive
-                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 font-medium'
-                      : 'bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700'
-                  }`}
-                >
-                  <Filter size={10} />
-                  {name}
-                  {isActive && <X size={10} className="ml-0.5" />}
-                </button>
-              );
-            })}
-          </div>
-        )}
 
         {searchError && <p className="mt-3 text-sm text-red-400">検索エラー: {searchError}</p>}
       </form>
