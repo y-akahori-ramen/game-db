@@ -1,4 +1,4 @@
-﻿Log file open, 05/02/22 13:01:53
+Log file open, 05/02/22 13:01:53
 LogWindows: Failed to load 'aqProf.dll' (GetLastError=126)
 LogWindows: File 'aqProf.dll' does not exist
 LogProfilingDebugging: Loading WinPixEventRuntime.dll for PIX profiling (from ../../../Engine/Binaries/ThirdParty/Windows/WinPixEventRuntime/x64).
@@ -632,6 +632,18 @@ LogConfig: CVar [[QualityLevelMapping:high]] deferred - dummy variable created
 [2022.05.02-04.01.58:886][970]LogModuleManager: Shutting down and abandoning module RSA (9)
 [2022.05.02-04.01.58:886][970]LogModuleManager: Shutting down and abandoning module NetworkFile (6)
 [2022.05.02-04.01.58:886][970]LogModuleManager: Shutting down and abandoning module StreamingFile (4)
+[2022.05.02-04.01.58:880][965]LogStreaming: Warning: FlushAsyncLoading: 14 Queued Packages took 34.52ms to finish.
+[2022.05.02-04.01.58:881][966]LogRenderer: Warning: Reallocating scene render targets due to resolution change (1920x1080 -> 2560x1440).
+[2022.05.02-04.01.58:882][967]LogMemory: Warning: Memory pool 'Texture_2D' reached 88% capacity (1056MB / 1200MB).
+[2022.05.02-04.01.58:883][968]LogUObjectGlobals: Error: Failed to find object 'Class /Script/Engine.MissingGameplayAbility' in package '/Game/Characters/Hero/Hero_AbilitySet'.
+[2022.05.02-04.01.58:884][968]LogStreaming: Error: Could not load '/Game/Maps/PL_Level2_Sub_Lighting' - file not found on disk.
+[2022.05.02-04.01.58:885][969]LogScript: Error: Script call stack:
+	Function /Game/Blueprints/BP_EnemyBoss.BP_EnemyBoss_C:ExecuteUbergraph_BP_EnemyBoss
+	Function /Game/Blueprints/BP_EnemyBoss.BP_EnemyBoss_C:OnTakeDamage
+	Function /Game/Blueprints/BP_EnemyBoss.BP_EnemyBoss_C:CalculateArmorMitigation
+[2022.05.02-04.01.58:890][969]LogD3D11RHI: Fatal: [File:D:\build\++UE5\Sync\Engine\Source\Runtime\Windows\D3D11RHI\Private\D3D11Viewport.cpp] [Line: 412]
+	Result failed at D:\build\++UE5\Sync\Engine\Source\Runtime\Windows\D3D11RHI\Private\D3D11Viewport.cpp:412
+	with error DXGI_ERROR_DEVICE_REMOVED (0x887A0005)
 [2022.05.02-04.01.58:886][970]LogModuleManager: Shutting down and abandoning module StorageServerClient (2)
 [2022.05.02-04.01.58:895][970]LogD3D11RHI: Shutdown
 [2022.05.02-04.01.58:895][970]LogD3D11RHI: CleanupD3DDevice

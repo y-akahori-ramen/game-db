@@ -478,7 +478,7 @@ export default function App() {
               logsReady={dataLoaded}
               dbReady={status === 'ready'}
               targetLine={queryParams.log}
-              onSelectLine={(line) => updateQueryParams({ log: line }, true)}
+              onSelectLine={(line) => updateQueryParams({ log: line ?? undefined }, true)}
             />
           </section>
         </main>

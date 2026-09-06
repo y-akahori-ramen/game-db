@@ -10,10 +10,9 @@ The only project is `my-qa-dashboard/` — a client-side Game QA Analytics Dashb
 npm run dev      # Vite dev server
 npm run build    # tsc -b && vite build
 npm run lint     # oxlint (config: .oxlintrc.json; not ESLint)
+npm run test     # node --experimental-strip-types unit tests
 npm run preview  # preview built app
 ```
-
-There is no test suite.
 
 Regenerating sample data (per-run CSV/JSON under `public/sample_data/run-XXX/` plus the mock search index `public/mock_data/runs.json`) uses Python via uv — never pip or plain python. The script uses PEP 723 inline dependencies:
 
