@@ -229,6 +229,27 @@ export default function App() {
     [loadLocalCsvFile, executeQuery],
   );
 
+  const handleSeekTime = useCallback(
+    (t: number) => {
+      updateQueryParams({ t }, true);
+    },
+    [updateQueryParams],
+  );
+
+  const handleSelectMedia = useCallback(
+    (mediaName: string) => {
+      updateQueryParams({ media: mediaName }, true);
+    },
+    [updateQueryParams],
+  );
+
+  const handleSelectLine = useCallback(
+    (line: number | null) => {
+      updateQueryParams({ log: line ?? undefined }, true);
+    },
+    [updateQueryParams],
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       {/* Header / Test info panel */}
@@ -344,8 +365,8 @@ export default function App() {
               videoUrl={selectedRun.videoUrl}
               currentTime={queryParams.t}
               selectedMediaFileName={queryParams.media}
-              onSeekTime={(t) => updateQueryParams({ t }, true)}
-              onSelectMedia={(mediaName) => updateQueryParams({ media: mediaName }, true)}
+              onSeekTime={handleSeekTime}
+              onSelectMedia={handleSelectMedia}
             />
           )}
 
@@ -441,7 +462,7 @@ export default function App() {
               logsReady={dataLoaded}
               dbReady={status === 'ready'}
               targetLine={queryParams.log}
-              onSelectLine={(line) => updateQueryParams({ log: line ?? undefined }, true)}
+              onSelectLine={handleSelectLine}
             />
           </section>
         </main>

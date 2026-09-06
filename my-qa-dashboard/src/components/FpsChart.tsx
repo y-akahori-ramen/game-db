@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { FpsMetric } from '../types';
 
@@ -13,72 +14,76 @@ const SERIES: { key: keyof FpsMetric; name: string; color: string }[] = [
   { key: 'RHIThreadTime', name: 'RHIThreadTime', color: '#34d399' },
 ];
 
-export default function FpsChart({ data }: Props) {
+function FpsChart({ data }: Props) {
   // ElapsedTime is the shared x-axis; PersistentLevel is looked up per-point
   // for the tooltip rather than plotted as its own series.
-  const levelByElapsed = new Map(data.map((d) => [d.ElapsedTime, d.PersistentLevel]));
-  const seriesData = SERIES.map(({ key }) => data.map((d) => [d.ElapsedTime, d[key] as number]));
+  const option = useMemo(() => {
+    const levelByElapsed = new Map(data.map((d) => [d.ElapsedTime, d.PersistentLevel]));
+    const seriesData = SERIES.map(({ key }) => data.map((d) => [d.ElapsedTime, d[key] as number]));
 
-  const option = {
-    backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'cross' },
-      formatter: (params: { axisValue: number; marker: string; seriesName: string; value: [number, number] }[]) => {
-        if (!params.length) return '';
-        const elapsed = params[0].value[0];
-        const level = levelByElapsed.get(elapsed);
-        const lines = params.map(
-          (p) => `${p.marker}${p.seriesName}: ${p.value[1].toFixed(2)} ms`,
-        );
-        return [`ElapsedTime: ${elapsed.toFixed(3)}s`, `Level: ${level ?? '-'}`, ...lines].join(
-          '<br/>',
-        );
+    return {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' },
+        formatter: (params: { axisValue: number; marker: string; seriesName: string; value: [number, number] }[]) => {
+          if (!params.length) return '';
+          const elapsed = params[0].value[0];
+          const level = levelByElapsed.get(elapsed);
+          const lines = params.map(
+            (p) => `${p.marker}${p.seriesName}: ${p.value[1].toFixed(2)} ms`,
+          );
+          return [`ElapsedTime: ${elapsed.toFixed(3)}s`, `Level: ${level ?? '-'}`, ...lines].join(
+            '<br/>',
+          );
+        },
       },
-    },
-    legend: {
-      data: SERIES.map((s) => s.name),
-      textStyle: { color: '#94a3b8' },
-    },
-    grid: { left: 50, right: 20, top: 40, bottom: 60 },
-    xAxis: {
-      type: 'value',
-      name: 'sec',
-      max: 'dataMax',
-      axisLabel: { color: '#64748b' },
-      axisLine: { lineStyle: { color: '#334155' } },
-    },
-    yAxis: {
-      type: 'value',
-      name: 'ms',
-      min: 0,
-      axisLabel: { color: '#64748b' },
-      splitLine: { lineStyle: { color: '#1e293b' } },
-    },
-    dataZoom: [
-      { type: 'inside', xAxisIndex: 0 },
-      { type: 'slider', xAxisIndex: 0, height: 18, bottom: 10 },
-    ],
-    series: SERIES.map(({ name, color }, i) => ({
-      name,
-      type: 'line',
-      data: seriesData[i],
-      showSymbol: false,
-      lineStyle: { width: name === 'FPSMs' ? 1.5 : 1, color, opacity: name === 'FPSMs' ? 1 : 0.7 },
-      itemStyle: { color },
-      ...(name === 'FPSMs'
-        ? {
-            markLine: {
-              silent: true,
-              symbol: 'none',
-              lineStyle: { color: '#ef4444', type: 'dashed' },
-              label: { formatter: '30fps (33.3ms)', color: '#ef4444' },
-              data: [{ yAxis: 1000 / 30 }],
-            },
-          }
-        : {}),
-    })),
-  };
+      legend: {
+        data: SERIES.map((s) => s.name),
+        textStyle: { color: '#94a3b8' },
+      },
+      grid: { left: 50, right: 20, top: 40, bottom: 60 },
+      xAxis: {
+        type: 'value',
+        name: 'sec',
+        max: 'dataMax',
+        axisLabel: { color: '#64748b' },
+        axisLine: { lineStyle: { color: '#334155' } },
+      },
+      yAxis: {
+        type: 'value',
+        name: 'ms',
+        min: 0,
+        axisLabel: { color: '#64748b' },
+        splitLine: { lineStyle: { color: '#1e293b' } },
+      },
+      dataZoom: [
+        { type: 'inside', xAxisIndex: 0 },
+        { type: 'slider', xAxisIndex: 0, height: 18, bottom: 10 },
+      ],
+      series: SERIES.map(({ name, color }, i) => ({
+        name,
+        type: 'line',
+        data: seriesData[i],
+        showSymbol: false,
+        lineStyle: { width: name === 'FPSMs' ? 1.5 : 1, color, opacity: name === 'FPSMs' ? 1 : 0.7 },
+        itemStyle: { color },
+        ...(name === 'FPSMs'
+          ? {
+              markLine: {
+                silent: true,
+                symbol: 'none',
+                lineStyle: { color: '#ef4444', type: 'dashed' },
+                label: { formatter: '30fps (33.3ms)', color: '#ef4444' },
+                data: [{ yAxis: 1000 / 30 }],
+              },
+            }
+          : {}),
+      })),
+    };
+  }, [data]);
 
   return <ReactECharts option={option} style={{ height: 320 }} notMerge />;
 }
+
+export default memo(FpsChart);

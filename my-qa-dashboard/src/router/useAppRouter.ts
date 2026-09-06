@@ -6,15 +6,9 @@ export interface RouteState {
   compareRunIds?: [string, string];
 }
 
-export interface QueryParams {
-  t?: number;
-  log?: number;
-  testName?: string;
-  gameVersion?: string;
-  platform?: string;
-  status?: string;
-  media?: string;
-}
+import { mergeQueryParams, type QueryParams } from '../utils/routeHelpers';
+export type { QueryParams };
+export { mergeQueryParams };
 
 function getNormalizedPathname(): string {
   const base = import.meta.env.BASE_URL || '/';
@@ -172,19 +166,17 @@ export function useAppRouter() {
   const updateQueryParams = useCallback(
     (newParams: Partial<QueryParams>, replace = true) => {
       setRouteInfo((prev) => {
-        const mergedParams: QueryParams = {
-          ...prev.params,
-          ...newParams,
-        };
+        const mergedParams = mergeQueryParams(prev.params, newParams);
 
-        // Remove undefined / NaN / empty strings
-        if (newParams.t === undefined) delete mergedParams.t;
-        if (newParams.log === undefined) delete mergedParams.log;
-        if (!mergedParams.testName) delete mergedParams.testName;
-        if (!mergedParams.gameVersion) delete mergedParams.gameVersion;
-        if (!mergedParams.platform) delete mergedParams.platform;
-        if (!mergedParams.status) delete mergedParams.status;
-        if (!mergedParams.media) delete mergedParams.media;
+        // Avoid re-render and redundant history navigation if params did not change
+        const prevKeys = Object.keys(prev.params) as (keyof QueryParams)[];
+        const nextKeys = Object.keys(mergedParams) as (keyof QueryParams)[];
+        if (
+          prevKeys.length === nextKeys.length &&
+          prevKeys.every((k) => prev.params[k] === mergedParams[k])
+        ) {
+          return prev;
+        }
 
         let currentPath = '/';
         if (prev.route.name === 'dashboard' && prev.route.runId) {

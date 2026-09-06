@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { MemoryMetric } from '../types';
 
@@ -23,7 +23,7 @@ const PALETTE = [
   '#14b8a6',
 ];
 
-export default function MemoryChart({ data }: Props) {
+function MemoryChart({ data }: Props) {
   // Columns are not known ahead of time: they vary by platform, so they are
   // derived from whatever keys are present on the first row of the loaded data.
   const columns = useMemo(() => {
@@ -55,52 +55,54 @@ export default function MemoryChart({ data }: Props) {
     );
   };
 
-  const sampleIndices = data.map((_, i) => i);
+  const option = useMemo(() => {
+    const sampleIndices = data.map((_, i) => i);
 
-  const series = [
-    { key: TRACKED_TOTAL_KEY, name: TRACKED_TOTAL_KEY, color: TRACKED_TOTAL_COLOR },
-    ...selectedColumns.map((key, i) => ({
-      key,
-      name: key,
-      color: PALETTE[i % PALETTE.length],
-    })),
-  ].map(({ key, name, color }) => ({
-    name,
-    type: 'line',
-    data: data.map((d) => d[key]),
-    showSymbol: false,
-    lineStyle: { width: 1.5, color },
-    itemStyle: { color },
-    areaStyle: { opacity: 0.12, color },
-  }));
+    const series = [
+      { key: TRACKED_TOTAL_KEY, name: TRACKED_TOTAL_KEY, color: TRACKED_TOTAL_COLOR },
+      ...selectedColumns.map((key, i) => ({
+        key,
+        name: key,
+        color: PALETTE[i % PALETTE.length],
+      })),
+    ].map(({ key, name, color }) => ({
+      name,
+      type: 'line',
+      data: data.map((d) => d[key]),
+      showSymbol: false,
+      lineStyle: { width: 1.5, color },
+      itemStyle: { color },
+      areaStyle: { opacity: 0.12, color },
+    }));
 
-  const option = {
-    backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis' },
-    legend: {
-      data: series.map((s) => s.name),
-      textStyle: { color: '#94a3b8' },
-    },
-    grid: { left: 60, right: 30, top: 40, bottom: 60 },
-    xAxis: {
-      type: 'category',
-      name: 'sample',
-      data: sampleIndices,
-      axisLabel: { color: '#64748b' },
-      axisLine: { lineStyle: { color: '#334155' } },
-    },
-    yAxis: {
-      type: 'value',
-      name: 'MB',
-      axisLabel: { color: '#64748b' },
-      splitLine: { lineStyle: { color: '#1e293b' } },
-    },
-    dataZoom: [
-      { type: 'inside', xAxisIndex: 0 },
-      { type: 'slider', xAxisIndex: 0, height: 18, bottom: 10 },
-    ],
-    series,
-  };
+    return {
+      backgroundColor: 'transparent',
+      tooltip: { trigger: 'axis' },
+      legend: {
+        data: series.map((s) => s.name),
+        textStyle: { color: '#94a3b8' },
+      },
+      grid: { left: 60, right: 30, top: 40, bottom: 60 },
+      xAxis: {
+        type: 'category',
+        name: 'sample',
+        data: sampleIndices,
+        axisLabel: { color: '#64748b' },
+        axisLine: { lineStyle: { color: '#334155' } },
+      },
+      yAxis: {
+        type: 'value',
+        name: 'MB',
+        axisLabel: { color: '#64748b' },
+        splitLine: { lineStyle: { color: '#1e293b' } },
+      },
+      dataZoom: [
+        { type: 'inside', xAxisIndex: 0 },
+        { type: 'slider', xAxisIndex: 0, height: 18, bottom: 10 },
+      ],
+      series,
+    };
+  }, [data, selectedColumns]);
 
   return (
     <div>
@@ -146,3 +148,5 @@ export default function MemoryChart({ data }: Props) {
     </div>
   );
 }
+
+export default memo(MemoryChart);
