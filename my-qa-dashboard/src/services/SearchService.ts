@@ -6,7 +6,16 @@ export interface SearchFilter {
 }
 
 /** Kind of artifact produced during a test run, used for icons/grouping in the viewer. */
-export type TestRunArtifactType = 'fps' | 'memory' | 'log' | 'video' | 'screenshot' | 'other';
+export type TestRunArtifactType =
+    | 'fps'
+    | 'memory'
+    | 'log'
+    | 'video'
+    | 'screenshot'
+    | 'crashdump'
+    | 'trace'
+    | 'report'
+    | 'other';
 
 export interface TestRunArtifact {
     /** BASE_URL-relative path to the artifact file. */
@@ -15,6 +24,12 @@ export interface TestRunArtifact {
     fileName: string;
     /** Artifact kind, used for icons/grouping in the viewer. */
     type: TestRunArtifactType;
+    /** Optional file size in bytes. */
+    sizeBytes?: number;
+    /** Optional MIME type. */
+    mimeType?: string;
+    /** Optional description. */
+    description?: string;
 }
 
 export interface TestRunSummary {
@@ -24,12 +39,12 @@ export interface TestRunSummary {
     testName: string;
     status: 'PASSED' | 'FAILED';
     timestamp: string;
-    /** BASE_URL-relative path to the FPS data file (.csv or .json). */
-    fpsDataUrl: string;
-    /** BASE_URL-relative path to the memory data file (.csv or .json). */
-    memoryDataUrl: string;
-    /** BASE_URL-relative path to the UE log file (.log). */
-    logsDataUrl: string;
+    /** BASE_URL-relative path to the FPS data file (.csv or .json). Absent if no FPS data. */
+    fpsDataUrl?: string;
+    /** BASE_URL-relative path to the memory data file (.csv or .json). Absent if no memory data. */
+    memoryDataUrl?: string;
+    /** BASE_URL-relative path to the UE log file (.log). Absent if no log data. */
+    logsDataUrl?: string;
     /** BASE_URL-relative path to the run's gameplay video (.mp4). Absent if no video was captured. */
     videoUrl?: string;
     /** All files produced by the test run (includes fps/memory/log/video plus extras like screenshots). */

@@ -1,4 +1,3 @@
-import { getIdToken } from '../auth';
 import type { SearchFilter, SearchService, TestRunArtifact, TestRunSummary } from './SearchService';
 
 interface SearchApiRun {
@@ -8,9 +7,9 @@ interface SearchApiRun {
     testName: string;
     status: 'PASSED' | 'FAILED';
     timestamp: string;
-    fpsDataUrl: string;
-    memoryDataUrl: string;
-    logsDataUrl: string;
+    fpsDataUrl?: string;
+    memoryDataUrl?: string;
+    logsDataUrl?: string;
     videoUrl?: string;
     artifacts: TestRunArtifact[];
 }
@@ -25,10 +24,6 @@ export class ApiSearchService implements SearchService {
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
         };
-        const idToken = getIdToken();
-        if (idToken) {
-            headers['Authorization'] = `Bearer ${idToken}`;
-        }
 
         const response = await fetch(`${import.meta.env.BASE_URL}api/search`, {
             method: 'POST',
@@ -44,11 +39,11 @@ export class ApiSearchService implements SearchService {
         const runs = (await response.json()) as SearchApiRun[];
         return runs.map((run) => ({
             ...run,
-            fpsDataUrl: stripLeadingSlash(run.fpsDataUrl),
-            memoryDataUrl: stripLeadingSlash(run.memoryDataUrl),
-            logsDataUrl: stripLeadingSlash(run.logsDataUrl),
+            fpsDataUrl: run.fpsDataUrl ? stripLeadingSlash(run.fpsDataUrl) : undefined,
+            memoryDataUrl: run.memoryDataUrl ? stripLeadingSlash(run.memoryDataUrl) : undefined,
+            logsDataUrl: run.logsDataUrl ? stripLeadingSlash(run.logsDataUrl) : undefined,
             videoUrl: run.videoUrl ? stripLeadingSlash(run.videoUrl) : undefined,
-            artifacts: run.artifacts.map((artifact) => ({ ...artifact, url: stripLeadingSlash(artifact.url) })),
+            artifacts: (run.artifacts || []).map((artifact) => ({ ...artifact, url: stripLeadingSlash(artifact.url) })),
         }));
     }
 }

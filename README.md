@@ -247,6 +247,7 @@ npm --prefix infra run build            # CDK コードの TypeScript コンパ�
 
 ## ドキュメント一覧
 
+- [今後の開発計画書 (`docs/plan.md`)](docs/plan.md): 自動テスト収集・リグレッション分析に向けた課題分析・目標アーキテクチャ・ロードマップ。
 - [AWS デプロイ構成案 (`docs/aws-architecture.md`)](docs/aws-architecture.md): Google OIDC / Lambda@Edge / WAF / S3 / DynamoDB の全体設計書。
 - [QA Upload CLI ドキュメント (`cli/README.md`)](cli/README.md): CLI の詳細オプション、Google OAuth 認証仕様、トークン管理。
 - [インフラ CDK アプリ ドキュメント (`infra/README.md`)](infra/README.md): CDK のデプロイ手順、スタック構成。

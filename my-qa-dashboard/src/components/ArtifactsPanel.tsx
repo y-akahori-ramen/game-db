@@ -5,12 +5,15 @@ import {
   ChevronRight,
   Download,
   FileArchive,
+  FileText,
   Gauge,
   Image as ImageIcon,
   Loader2,
   MemoryStick,
   ScrollText,
   Video,
+  Bug,
+  Activity,
 } from 'lucide-react';
 import { downloadZip } from 'client-zip';
 import type { TestRunArtifact, TestRunArtifactType } from '../services';
@@ -26,6 +29,9 @@ const TYPE_ICONS: Record<TestRunArtifactType, typeof Gauge> = {
   log: ScrollText,
   video: Video,
   screenshot: ImageIcon,
+  crashdump: Bug,
+  trace: Activity,
+  report: FileText,
   other: FileArchive,
 };
 
@@ -35,6 +41,9 @@ const TYPE_LABELS: Record<TestRunArtifactType, string> = {
   log: 'Log',
   video: 'Video',
   screenshot: 'Screenshot',
+  crashdump: 'Crash Dump',
+  trace: 'Trace',
+  report: 'Report',
   other: 'Other',
 };
 

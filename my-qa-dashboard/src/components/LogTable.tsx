@@ -10,6 +10,8 @@ interface Props {
   /** True once the sample UE log has been parsed and loaded into UE_LOG_TABLE. */
   logsReady: boolean;
   dbReady: boolean;
+  targetLine?: number | null;
+  onSelectLine?: (lineNumber: number) => void;
 }
 
 /** All logs (sample or uploaded) are loaded into this same table/schema; see ueLogParser.ts. */
@@ -28,6 +30,7 @@ function escapeSql(value: string): string {
 }
 
 interface DisplayLogEntry {
+  lineNumber: number;
   frame: number | null;
   timestamp: string;
   level: string;
@@ -41,8 +44,11 @@ export default function LogTable({
   loadRowsAsTable,
   logsReady,
   dbReady,
+  targetLine,
+  onSelectLine,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState(false);
   const [parsing, setParsing] = useState(false);
@@ -63,7 +69,7 @@ export default function LogTable({
       const lv = escapeSql(level);
       const kw = escapeSql(keyword);
       const sql = `
-        SELECT frame, COALESCE(timestamp_raw, '-') AS "timestamp", level, verbosity AS "badgeLabel", category, message
+        SELECT line_number AS "lineNumber", frame, COALESCE(timestamp_raw, '-') AS "timestamp", level, verbosity AS "badgeLabel", category, message
         FROM ${UE_LOG_TABLE}
         WHERE type = 'log'
           AND (level = '${lv}' OR '${lv}' = 'ALL')
@@ -82,6 +88,15 @@ export default function LogTable({
     const timer = setTimeout(runQuery, 200);
     return () => clearTimeout(timer);
   }, [ready, runQuery]);
+
+  // Auto-scroll to targetLine when rows load or targetLine changes
+  useEffect(() => {
+    if (!targetLine || rows.length === 0) return;
+    const rowEl = document.getElementById(`log-row-${targetLine}`);
+    if (rowEl) {
+      rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [targetLine, rows]);
 
   const handleFileChange = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
@@ -166,10 +181,11 @@ export default function LogTable({
         </span>
       </div>
 
-      <div className="overflow-y-auto max-h-96 rounded-md border border-slate-800">
+      <div ref={tableContainerRef} className="overflow-y-auto max-h-96 rounded-md border border-slate-800">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-slate-900">
+          <thead className="sticky top-0 bg-slate-900 z-10">
             <tr className="text-left text-slate-400 border-b border-slate-800">
+              <th className="px-2.5 py-2 w-14 font-medium text-slate-500">#</th>
               <th className="px-3 py-2 w-16 font-medium">Frame</th>
               <th className="px-3 py-2 w-32 font-medium">Timestamp</th>
               <th className="px-3 py-2 w-20 font-medium">Level</th>
@@ -178,27 +194,42 @@ export default function LogTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, i) => (
-              <tr
-                key={i}
-                className="border-b border-slate-800/60 hover:bg-slate-800/40"
-              >
-                <td className="px-3 py-1.5 text-slate-400 tabular-nums">{row.frame ?? '-'}</td>
-                <td className="px-3 py-1.5 text-slate-400 tabular-nums">{row.timestamp}</td>
-                <td className="px-3 py-1.5">
-                  <span
-                    className={`inline-block px-2 py-0.5 rounded text-xs ${LEVEL_STYLES[row.level] ?? ''}`}
-                  >
-                    {row.badgeLabel}
-                  </span>
-                </td>
-                <td className="px-3 py-1.5 text-slate-300">{row.category}</td>
-                <td className="px-3 py-1.5 text-slate-200 whitespace-pre-wrap">{row.message}</td>
-              </tr>
-            ))}
+            {rows.map((row) => {
+              const isTarget = targetLine !== null && targetLine !== undefined && row.lineNumber === targetLine;
+              return (
+                <tr
+                  key={row.lineNumber}
+                  id={`log-row-${row.lineNumber}`}
+                  onClick={() => onSelectLine?.(row.lineNumber)}
+                  className={`border-b border-slate-800/60 cursor-pointer transition-colors ${
+                    isTarget
+                      ? 'bg-cyan-950/70 border-cyan-500/80 ring-1 ring-inset ring-cyan-500/50 text-slate-100'
+                      : 'hover:bg-slate-800/40'
+                  }`}
+                  title="クリックしてこのログ行のURLを共有"
+                >
+                  <td className="px-2.5 py-1.5 text-slate-600 tabular-nums text-xs select-none">
+                    {row.lineNumber}
+                  </td>
+                  <td className="px-3 py-1.5 text-slate-400 tabular-nums">{row.frame ?? '-'}</td>
+                  <td className="px-3 py-1.5 text-slate-400 tabular-nums">{row.timestamp}</td>
+                  <td className="px-3 py-1.5">
+                    <span
+                      className={`inline-block px-2 py-0.5 rounded text-xs ${LEVEL_STYLES[row.level] ?? ''}`}
+                    >
+                      {row.badgeLabel}
+                    </span>
+                  </td>
+                  <td className="px-3 py-1.5 text-slate-300">{row.category}</td>
+                  <td className="px-3 py-1.5 text-slate-200 whitespace-pre-wrap font-mono text-xs leading-relaxed">
+                    {row.message}
+                  </td>
+                </tr>
+              );
+            })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
                   {ready ? 'No logs match the filter.' : 'Load sample data or open a UE log to view logs.'}
                 </td>
               </tr>

@@ -144,6 +144,8 @@ def run_pipeline_test(endpoint_url: str | None = None) -> bool:
                 encoding="utf-8",
             )
             (run_dir / "capture.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42\x00\x00")
+            (run_dir / "crash.dmp").write_bytes(b"\x00" * 32)
+            (run_dir / "screenshot.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
             run_id = "run-stage2-test"
             print(f"   Created sample run {run_id} in {run_dir}")
@@ -187,7 +189,12 @@ def run_pipeline_test(endpoint_url: str | None = None) -> bool:
         manifest_data = json.loads(manifest_obj["Body"].read().decode("utf-8"))
         assert manifest_data["run_id"] == run_id
         assert manifest_data["platform"] == "PS5"
-        print(f"   [OK] Verified manifest in s3://{bucket_name}/{manifest_key}")
+        assert manifest_data.get("schema_version") == "2.0"
+        assert len(manifest_data.get("artifacts", [])) == 6
+        artifact_types = {a["type"] for a in manifest_data["artifacts"]}
+        assert "crashdump" in artifact_types
+        assert "screenshot" in artifact_types
+        print(f"   [OK] Verified manifest v2 in s3://{bucket_name}/{manifest_key} with {len(manifest_data['artifacts'])} artifacts.")
 
         # 5. Invoke Manifest Indexer Lambda handler
         print("\n4. Triggering manifest-indexer Lambda handler...")
@@ -225,8 +232,10 @@ def run_pipeline_test(endpoint_url: str | None = None) -> bool:
         assert item["runId"] == run_id
         assert item["platform"] == "PS5"
         assert item["status"] == "PASSED"
+        assert "artifacts" in item
+        assert len(item["artifacts"]) == 6
         print(
-            f"   [OK] Verified item in DynamoDB: runId={item['runId']}, platform={item['platform']}"
+            f"   [OK] Verified item in DynamoDB: runId={item['runId']}, platform={item['platform']}, artifacts count={len(item['artifacts'])}"
         )
 
         # 7. Invoke Search Lambda handler
@@ -245,8 +254,11 @@ def run_pipeline_test(endpoint_url: str | None = None) -> bool:
         )
         assert res_all["statusCode"] == 200
         runs_all = json.loads(res_all["body"])
-        assert any(r["runId"] == run_id for r in runs_all)
-        print(f"   [OK] Search (all): Found {len(runs_all)} runs.")
+        matched = next((r for r in runs_all if r["runId"] == run_id), None)
+        assert matched is not None
+        assert "artifacts" in matched
+        assert len(matched["artifacts"]) == 6
+        print(f"   [OK] Search (all): Found {len(runs_all)} runs, matched run has {len(matched['artifacts'])} artifacts.")
 
         # Query 2: Platform filter
         res_platform = search_mod.handler(

@@ -37,9 +37,6 @@ REQUIRED_MANIFEST_FIELDS = (
     "platform",
     "test_name",
     "result",
-    "fps_key",
-    "memory_key",
-    "log_key",
 )
 
 # Single fixed partition value so the all-index GSI can list every run by executedAt.
@@ -84,19 +81,21 @@ def _manifest_to_item(manifest: dict[str, Any]) -> dict[str, Any]:
         "platform": manifest["platform"],
         "testName": manifest["test_name"],
         "status": manifest["result"],
-        "fpsKey": manifest["fps_key"],
-        "memoryKey": manifest["memory_key"],
-        "logKey": manifest["log_key"],
         "gsiAllPk": ALL_PARTITION_VALUE,
     }
-
-    video_key = manifest.get("video_key")
-    if video_key:
-        item["videoKey"] = video_key
 
     avg_fps = manifest.get("avg_fps")
     if avg_fps is not None:
         item["avgFps"] = Decimal(str(avg_fps))
+
+    artifacts = manifest.get("artifacts", [])
+    clean_artifacts = []
+    for art in artifacts:
+        clean_art = dict(art)
+        if "size_bytes" in clean_art and clean_art["size_bytes"] is not None:
+            clean_art["size_bytes"] = int(clean_art["size_bytes"])
+        clean_artifacts.append(clean_art)
+    item["artifacts"] = clean_artifacts
 
     return item
 

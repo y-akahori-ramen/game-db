@@ -46,12 +46,6 @@ from botocore.exceptions import (
     ProfileNotFound,
 )
 
-RECOGNIZED_FILES = {
-    "fps_metrics.csv": "fps_key",
-    "memory_metrics.csv": "memory_key",
-    "ue.log": "log_key",
-    "capture.mp4": "video_key",
-}
 RESULT_CHOICES = ("PASSED", "FAILED")
 
 GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -64,7 +58,7 @@ DEFAULT_TOKEN_CACHE = Path.home() / ".config" / "game-qa" / "token.json"
 class UploadFile:
     local_path: Path
     s3_key: str
-    summary_field: str
+    artifact_type: str
 
 
 # ==============================================================================
@@ -692,6 +686,31 @@ def human_size(num_bytes: int) -> str:
     return f"{num_bytes} B"
 
 
+def detect_artifact_type(file_path: Path) -> str:
+    name = file_path.name.lower()
+    ext = file_path.suffix.lower()
+
+    if name == "fps_metrics.csv" or ("fps" in name and ext in (".csv", ".json")):
+        return "fps"
+    if name == "memory_metrics.csv" or (
+        ("memory" in name or "llm" in name) and ext in (".csv", ".json")
+    ):
+        return "memory"
+    if name == "ue.log" or ext in (".log", ".txt"):
+        return "log"
+    if name in ("capture.mp4", "video.mp4") or ext in (".mp4", ".webm", ".mov", ".avi"):
+        return "video"
+    if ext in (".png", ".jpg", ".jpeg", ".webp"):
+        return "screenshot"
+    if ext in (".dmp", ".mdmp"):
+        return "crashdump"
+    if ext in (".utrace", ".trace"):
+        return "trace"
+    if ext in (".html", ".xml"):
+        return "report"
+    return "other"
+
+
 def discover_uploads(run_dir: Path, run_id: str) -> list[UploadFile]:
     if not run_dir.exists():
         raise ValueError(f"--run-dir does not exist: {run_dir}")
@@ -699,22 +718,25 @@ def discover_uploads(run_dir: Path, run_id: str) -> list[UploadFile]:
         raise ValueError(f"--run-dir is not a directory: {run_dir}")
 
     uploads: list[UploadFile] = []
-    for filename, summary_field in RECOGNIZED_FILES.items():
-        local_path = run_dir / filename
-        if local_path.is_file():
-            uploads.append(
-                UploadFile(
-                    local_path=local_path,
-                    s3_key=f"runs/{run_id}/{filename}",
-                    summary_field=summary_field,
-                )
+    for entry in sorted(run_dir.rglob("*")):
+        if not entry.is_file():
+            continue
+        if entry.name == "manifest.json" or entry.name.startswith("."):
+            continue
+
+        rel_path = entry.relative_to(run_dir).as_posix()
+        s3_key = f"runs/{run_id}/{rel_path}"
+        artifact_type = detect_artifact_type(entry)
+        uploads.append(
+            UploadFile(
+                local_path=entry,
+                s3_key=s3_key,
+                artifact_type=artifact_type,
             )
+        )
 
     if not uploads:
-        expected = ", ".join(RECOGNIZED_FILES)
-        raise ValueError(
-            f"No recognized child files found in {run_dir}. Expected at least one of: {expected}."
-        )
+        raise ValueError(f"No child files found in {run_dir} to upload.")
 
     return uploads
 
@@ -730,16 +752,13 @@ def build_transfer_config() -> TransferConfig:
 
 def upload_child_files(
     s3_client: Any, bucket: str, uploads: list[UploadFile]
-) -> dict[str, str | None]:
-    summary_keys: dict[str, str | None] = {
-        field: None for field in RECOGNIZED_FILES.values()
-    }
+) -> None:
     transfer_config = build_transfer_config()
 
     for upload in uploads:
         size = upload.local_path.stat().st_size
         print(
-            f"Uploading {upload.local_path.name} ({human_size(size)}) "
+            f"Uploading {upload.local_path.name} [{upload.artifact_type}] ({human_size(size)}) "
             f"-> s3://{bucket}/{upload.s3_key}"
         )
         s3_client.upload_file(
@@ -748,16 +767,23 @@ def upload_child_files(
             Key=upload.s3_key,
             Config=transfer_config,
         )
-        summary_keys[upload.summary_field] = upload.s3_key
         print(f"Uploaded {upload.local_path.name} successfully.")
-
-    return summary_keys
 
 
 def build_manifest(
-    args: argparse.Namespace, summary_keys: dict[str, str | None]
+    args: argparse.Namespace, uploads: list[UploadFile]
 ) -> dict[str, Any]:
+    artifacts = [
+        {
+            "file_name": u.local_path.name,
+            "s3_key": u.s3_key,
+            "type": u.artifact_type,
+            "size_bytes": u.local_path.stat().st_size,
+        }
+        for u in uploads
+    ]
     return {
+        "schema_version": "2.0",
         "run_id": args.run_id,
         "executed_at": args.executed_at,
         "game_version": args.game_version,
@@ -765,10 +791,7 @@ def build_manifest(
         "test_name": args.test_name,
         "result": args.result,
         "avg_fps": args.avg_fps,
-        "fps_key": summary_keys["fps_key"],
-        "memory_key": summary_keys["memory_key"],
-        "log_key": summary_keys["log_key"],
-        "video_key": summary_keys["video_key"],
+        "artifacts": artifacts,
     }
 
 
@@ -795,8 +818,8 @@ def handle_upload(args: argparse.Namespace) -> int:
         args.executed_at = validate_executed_at(args.executed_at)
         uploads = discover_uploads(args.run_dir.resolve(), args.run_id)
         s3_client = create_s3_client(args)
-        summary_keys = upload_child_files(s3_client, args.bucket, uploads)
-        manifest = build_manifest(args, summary_keys)
+        upload_child_files(s3_client, args.bucket, uploads)
+        manifest = build_manifest(args, uploads)
         upload_manifest(s3_client, args.bucket, args.run_id, manifest)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)

@@ -44,6 +44,21 @@
         "url": "sample_data/run-001/screenshot_003.png",
         "fileName": "screenshot_003.png",
         "type": "screenshot"
+      },
+      {
+        "url": "sample_data/run-001/crash.dmp",
+        "fileName": "crash.dmp",
+        "type": "crashdump"
+      },
+      {
+        "url": "sample_data/run-001/profile.utrace",
+        "fileName": "profile.utrace",
+        "type": "trace"
+      },
+      {
+        "url": "sample_data/run-001/test_report.html",
+        "fileName": "test_report.html",
+        "type": "report"
       }
     ],
     "videoUrl": "sample_data/run-001/video.mp4"

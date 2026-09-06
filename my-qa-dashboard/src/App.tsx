@@ -1,14 +1,16 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import {
   Activity,
   ArrowLeft,
+  Check,
   CheckCircle2,
   FileUp,
   Gauge,
   Loader2,
   MemoryStick,
   ScrollText,
+  Share2,
   Video,
   XCircle,
 } from 'lucide-react';
@@ -18,8 +20,9 @@ import MemoryChart from './components/MemoryChart';
 import LogTable, { UE_LOG_TABLE } from './components/LogTable';
 import SearchPage from './components/SearchPage';
 import ArtifactsPanel from './components/ArtifactsPanel';
-import { CallbackPage, useAuthGuard } from './auth';
+import { useAppRouter } from './router';
 import { parseUeLogText } from './utils/ueLogParser';
+import { searchService } from './services';
 import type { TestRunSummary } from './services';
 import type { FpsMetric, MemoryMetric } from './types';
 
@@ -34,38 +37,27 @@ function fromClause(name: string): string {
 }
 
 export default function App() {
-  const { authError, isCallbackRoute, isRedirecting } = useAuthGuard();
+  const {
+    route,
+    queryParams,
+    navigateToSearch,
+    navigateToRun,
+    updateQueryParams,
+    getShareableUrl,
+  } = useAppRouter();
 
-  if (isCallbackRoute) {
-    return <CallbackPage />;
-  }
-
-  if (authError) {
-    return <AuthStatusPage message={authError} title="認証エラー" tone="error" />;
-  }
-
-  if (isRedirecting) {
-    return (
-      <AuthStatusPage
-        message="Cognito Hosted UI にリダイレクトしています。"
-        title="ログインへ移動しています"
-      />
-    );
-  }
-
-  return <DashboardApp />;
-}
-
-function DashboardApp() {
   const { status, error, loadRemoteFile, executeQuery, loadRowsAsTable, loadLocalCsvFile } =
     useDuckDB();
-  const [view, setView] = useState<'search' | 'dashboard'>('search');
+
   const [selectedRun, setSelectedRun] = useState<TestRunSummary | null>(null);
   const [fpsData, setFpsData] = useState<FpsMetric[]>([]);
   const [memoryData, setMemoryData] = useState<MemoryMetric[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const fpsFileInputRef = useRef<HTMLInputElement>(null);
   const [fpsFileName, setFpsFileName] = useState<string | null>(null);
@@ -79,14 +71,12 @@ function DashboardApp() {
   const [memoryFileLoading, setMemoryFileLoading] = useState(false);
   const [memoryFileError, setMemoryFileError] = useState<string | null>(null);
 
-  // A locally opened CSV overwrites the sample file registration but is queried identically.
   const fpsReady = dataLoaded || fpsUploaded;
   const memoryReady = dataLoaded || memoryUploaded;
 
-  const handleOpenRun = useCallback(
+  const loadRunData = useCallback(
     async (run: TestRunSummary) => {
       setSelectedRun(run);
-      setView('dashboard');
       setDataLoaded(false);
       setLoadingData(true);
       setLoadError(null);
@@ -96,32 +86,43 @@ function DashboardApp() {
       setMemoryUploaded(false);
       setMemoryFileName(null);
       setMemoryFileError(null);
+
       try {
         const base = import.meta.env.BASE_URL;
-        const fpsName = runFileName('run_fps', run.fpsDataUrl);
-        const memoryName = runFileName('run_memory', run.memoryDataUrl);
-        const [, , logText] = await Promise.all([
-          loadRemoteFile(fpsName, `${base}${run.fpsDataUrl}`),
-          loadRemoteFile(memoryName, `${base}${run.memoryDataUrl}`),
-          fetch(`${base}${run.logsDataUrl}`).then((res) => {
-            if (!res.ok) throw new Error(`Failed to fetch ${run.logsDataUrl}: ${res.status}`);
-            return res.text();
-          }),
-        ]);
-        const [fps, memory] = await Promise.all([
-          executeQuery<FpsMetric>(
+
+        // Load FPS if available
+        let fpsResult: FpsMetric[] = [];
+        if (run.fpsDataUrl) {
+          const fpsName = runFileName('run_fps', run.fpsDataUrl);
+          await loadRemoteFile(fpsName, `${base}${run.fpsDataUrl}`);
+          fpsResult = await executeQuery<FpsMetric>(
             `SELECT PersistentLevel, FPSMs, GameThread, RenderThread, GPUFrame, RHIThreadTime, ElapsedTime FROM ${fromClause(fpsName)} ORDER BY ElapsedTime`,
-          ),
-          executeQuery<MemoryMetric>(`SELECT * FROM ${fromClause(memoryName)}`),
-          // Logs are a real UE log file, parsed through the same text -> table pipeline
-          // as a user-uploaded log so both are queried identically.
-          loadRowsAsTable(
+          );
+        }
+
+        // Load Memory if available
+        let memoryResult: MemoryMetric[] = [];
+        if (run.memoryDataUrl) {
+          const memoryName = runFileName('run_memory', run.memoryDataUrl);
+          await loadRemoteFile(memoryName, `${base}${run.memoryDataUrl}`);
+          memoryResult = await executeQuery<MemoryMetric>(
+            `SELECT * FROM ${fromClause(memoryName)}`,
+          );
+        }
+
+        // Load Logs if available
+        if (run.logsDataUrl) {
+          const res = await fetch(`${base}${run.logsDataUrl}`);
+          if (!res.ok) throw new Error(`Failed to fetch ${run.logsDataUrl}: ${res.status}`);
+          const logText = await res.text();
+          await loadRowsAsTable(
             UE_LOG_TABLE,
             parseUeLogText(logText) as unknown as Record<string, unknown>[],
-          ),
-        ]);
-        setFpsData(fps);
-        setMemoryData(memory);
+          );
+        }
+
+        setFpsData(fpsResult);
+        setMemoryData(memoryResult);
         setDataLoaded(true);
       } catch (e) {
         setLoadError(e instanceof Error ? e.message : String(e));
@@ -131,6 +132,64 @@ function DashboardApp() {
     },
     [loadRemoteFile, executeQuery, loadRowsAsTable],
   );
+
+  // Sync route.runId with selectedRun
+  useEffect(() => {
+    if (route.name === 'dashboard' && route.runId) {
+      if (selectedRun?.runId !== route.runId) {
+        // Find run by ID
+        void (async () => {
+          try {
+            setLoadingData(true);
+            setLoadError(null);
+            const allRuns = await searchService.searchRuns({});
+            const targetRun = allRuns.find((r) => r.runId === route.runId);
+            if (targetRun) {
+              await loadRunData(targetRun);
+            } else {
+              setLoadError(`Run ID "${route.runId}" が見つかりませんでした。`);
+              setLoadingData(false);
+            }
+          } catch (err) {
+            setLoadError(err instanceof Error ? err.message : String(err));
+            setLoadingData(false);
+          }
+        })();
+      }
+    } else {
+      setSelectedRun(null);
+    }
+  }, [route, selectedRun?.runId, loadRunData]);
+
+  // Video seeking sync with queryParams.t
+  useEffect(() => {
+    if (queryParams.t !== undefined && videoRef.current) {
+      const diff = Math.abs(videoRef.current.currentTime - queryParams.t);
+      if (diff > 0.5) {
+        videoRef.current.currentTime = queryParams.t;
+      }
+    }
+  }, [queryParams.t]);
+
+  const handleOpenRun = useCallback(
+    (run: TestRunSummary) => {
+      navigateToRun(run.runId);
+    },
+    [navigateToRun],
+  );
+
+  const handleCopyLink = useCallback(async () => {
+    if (!selectedRun) return;
+    const url = getShareableUrl(selectedRun.runId, queryParams);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback
+      prompt('共有URLをコピーしてください:', url);
+    }
+  }, [selectedRun, queryParams, getShareableUrl]);
 
   const handleFpsFileChange = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
@@ -186,23 +245,23 @@ function DashboardApp() {
       <header className="border-b border-slate-800 bg-slate-900/60 px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            {view === 'dashboard' && (
+            {route.name === 'dashboard' && (
               <button
-                onClick={() => setView('search')}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1.5 text-sm text-slate-200 hover:bg-slate-800"
+                onClick={navigateToSearch}
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1.5 text-sm text-slate-200 hover:bg-slate-800 transition-colors"
               >
                 <ArrowLeft size={16} /> 検索に戻る
               </button>
             )}
             <Activity className="text-cyan-400" size={24} />
             <h1 className="text-lg font-semibold">
-              {view === 'search' ? 'Test Run Search' : 'Game QA Analytics Dashboard'}
+              {route.name === 'search' ? 'Test Run Search' : 'Game QA Analytics Dashboard'}
             </h1>
           </div>
-          {view === 'dashboard' && selectedRun && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-400">
+          {route.name === 'dashboard' && selectedRun && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-400">
               <span>
-                Test Run: <span className="text-slate-200">{selectedRun.runId}</span>
+                Test Run: <span className="text-slate-200 font-medium">{selectedRun.runId}</span>
               </span>
               <span>
                 Game Version: <span className="text-slate-200">{selectedRun.gameVersion}</span>
@@ -211,16 +270,27 @@ function DashboardApp() {
                 Platform: <span className="text-slate-200">{selectedRun.platform}</span>
               </span>
               {selectedRun.status === 'PASSED' ? (
-                <span className="inline-flex items-center gap-1 rounded bg-green-500/15 px-2 py-0.5 text-green-400">
+                <span className="inline-flex items-center gap-1 rounded bg-green-500/15 px-2 py-0.5 text-green-400 font-medium text-xs">
                   <CheckCircle2 size={14} /> PASSED
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 rounded bg-red-500/15 px-2 py-0.5 text-red-400">
+                <span className="inline-flex items-center gap-1 rounded bg-red-500/15 px-2 py-0.5 text-red-400 font-medium text-xs">
                   <XCircle size={14} /> FAILED
                 </span>
               )}
+
+              {/* Share / Copy Link Button */}
+              <button
+                onClick={handleCopyLink}
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-700 transition-colors"
+                title="現在の秒数や選択行を含めてURLをコピー"
+              >
+                {copied ? <Check size={13} className="text-green-400" /> : <Share2 size={13} />}
+                {copied ? 'コピー完了!' : 'リンクをコピー'}
+              </button>
+
               {loadingData && (
-                <span className="inline-flex items-center gap-1.5 text-cyan-400">
+                <span className="inline-flex items-center gap-1.5 text-cyan-400 text-xs">
                   <Loader2 size={14} className="animate-spin" /> Loading...
                 </span>
               )}
@@ -240,11 +310,11 @@ function DashboardApp() {
         )}
       </header>
 
-      {view === 'search' ? (
+      {route.name === 'search' ? (
         <SearchPage onOpenRun={handleOpenRun} />
       ) : (
         <main className="p-6 space-y-6">
-          {/* Artifacts produced by the run: fps/memory/log/video/screenshots etc. */}
+          {/* Artifacts produced by the run */}
           {selectedRun && (
             <ArtifactsPanel runId={selectedRun.runId} artifacts={selectedRun.artifacts} />
           )}
@@ -252,16 +322,34 @@ function DashboardApp() {
           {/* Gameplay video (only present for runs that captured one) */}
           {selectedRun?.videoUrl && (
             <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-300">
-                <Video size={16} className="text-purple-400" /> Gameplay Video
-              </h2>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+                  <Video size={16} className="text-purple-400" /> Gameplay Video
+                </h2>
+                {queryParams.t !== undefined && (
+                  <span className="text-xs text-slate-400 font-mono">
+                    Time: {queryParams.t.toFixed(1)}s
+                  </span>
+                )}
+              </div>
               <div className="flex justify-center bg-black rounded-md">
                 <video
+                  ref={videoRef}
                   key={selectedRun.videoUrl}
                   controls
                   preload="metadata"
                   className="max-h-[480px] w-full max-w-3xl"
                   src={`${import.meta.env.BASE_URL}${selectedRun.videoUrl}`}
+                  onLoadedMetadata={() => {
+                    if (queryParams.t && videoRef.current) {
+                      videoRef.current.currentTime = queryParams.t;
+                    }
+                  }}
+                  onSeeked={() => {
+                    if (videoRef.current) {
+                      updateQueryParams({ t: videoRef.current.currentTime }, true);
+                    }
+                  }}
                 >
                   お使いのブラウザは動画再生に対応していません。
                 </video>
@@ -302,12 +390,13 @@ function DashboardApp() {
               {fpsUploaded && fpsFileName && (
                 <p className="mb-2 text-xs text-slate-500">{fpsFileName}</p>
               )}
-              {fpsReady ? (
+              {fpsReady && fpsData.length > 0 ? (
                 <FpsChart data={fpsData} />
               ) : (
-                <Placeholder />
+                <Placeholder message={selectedRun && !selectedRun.fpsDataUrl && !fpsUploaded ? 'このテスト実行には FPS データがありません。' : 'Open a test run or a local file to render chart.'} />
               )}
             </section>
+
             <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300">
@@ -341,10 +430,10 @@ function DashboardApp() {
               {memoryUploaded && memoryFileName && (
                 <p className="mb-2 text-xs text-slate-500">{memoryFileName}</p>
               )}
-              {memoryReady ? (
+              {memoryReady && memoryData.length > 0 ? (
                 <MemoryChart data={memoryData} />
               ) : (
-                <Placeholder />
+                <Placeholder message={selectedRun && !selectedRun.memoryDataUrl && !memoryUploaded ? 'このテスト実行には メモリデータがありません。' : 'Open a test run or a local file to render chart.'} />
               )}
             </section>
           </div>
@@ -359,6 +448,8 @@ function DashboardApp() {
               loadRowsAsTable={loadRowsAsTable}
               logsReady={dataLoaded}
               dbReady={status === 'ready'}
+              targetLine={queryParams.log}
+              onSelectLine={(line) => updateQueryParams({ log: line }, true)}
             />
           </section>
         </main>
@@ -367,33 +458,10 @@ function DashboardApp() {
   );
 }
 
-function Placeholder() {
+function Placeholder({ message = 'Open a test run or a local file to render chart.' }: { message?: string }) {
   return (
     <div className="flex h-80 items-center justify-center text-sm text-slate-600">
-      Open a test run or a local file to render chart.
-    </div>
-  );
-}
-
-interface AuthStatusPageProps {
-  message: string;
-  title: string;
-  tone?: 'default' | 'error';
-}
-
-function AuthStatusPage({
-  message,
-  title,
-  tone = 'default',
-}: AuthStatusPageProps) {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-slate-100">
-      <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-6 py-5 text-center">
-        <p className="text-sm font-medium text-slate-200">{title}</p>
-        <p className={`mt-2 text-sm ${tone === 'error' ? 'text-red-400' : 'text-slate-400'}`}>
-          {message}
-        </p>
-      </div>
+      {message}
     </div>
   );
 }

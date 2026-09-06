@@ -63,9 +63,6 @@ REQUIRED_ITEM_FIELDS = (
     "platform",
     "testName",
     "status",
-    "fpsKey",
-    "memoryKey",
-    "logKey",
 )
 
 
@@ -176,11 +173,33 @@ def _item_to_summary(item: dict[str, Any]) -> dict[str, Any]:
         )
 
     run_id = item["runId"]
-    artifacts = [
-        _to_artifact(run_id, item["fpsKey"], "fps"),
-        _to_artifact(run_id, item["memoryKey"], "memory"),
-        _to_artifact(run_id, item["logKey"], "log"),
-    ]
+    artifacts: list[dict[str, Any]] = []
+    fps_url: str | None = None
+    memory_url: str | None = None
+    log_url: str | None = None
+    video_url: str | None = None
+
+    for art in item.get("artifacts", []):
+        art_type = art.get("type", "other")
+        file_name = art.get("file_name") or posixpath.basename(art.get("s3_key", ""))
+        url = _to_cloudfront_data_url(run_id, file_name)
+        artifact_entry: dict[str, Any] = {
+            "url": url,
+            "fileName": file_name,
+            "type": art_type,
+        }
+        if "size_bytes" in art and art["size_bytes"] is not None:
+            artifact_entry["sizeBytes"] = int(art["size_bytes"])
+        artifacts.append(artifact_entry)
+
+        if art_type == "fps" and not fps_url:
+            fps_url = url
+        elif art_type == "memory" and not memory_url:
+            memory_url = url
+        elif art_type == "log" and not log_url:
+            log_url = url
+        elif art_type == "video" and not video_url:
+            video_url = url
 
     summary: dict[str, Any] = {
         "runId": run_id,
@@ -189,17 +208,17 @@ def _item_to_summary(item: dict[str, Any]) -> dict[str, Any]:
         "testName": item["testName"],
         "status": item["status"],
         "timestamp": item["executedAt"],
-        "fpsDataUrl": _to_cloudfront_data_url(run_id, item["fpsKey"]),
-        "memoryDataUrl": _to_cloudfront_data_url(run_id, item["memoryKey"]),
-        "logsDataUrl": _to_cloudfront_data_url(run_id, item["logKey"]),
         "artifacts": artifacts,
     }
 
-    video_key = item.get("videoKey")
-    if video_key:
-        video_artifact = _to_artifact(run_id, video_key, "video")
-        artifacts.append(video_artifact)
-        summary["videoUrl"] = video_artifact["url"]
+    if fps_url:
+        summary["fpsDataUrl"] = fps_url
+    if memory_url:
+        summary["memoryDataUrl"] = memory_url
+    if log_url:
+        summary["logsDataUrl"] = log_url
+    if video_url:
+        summary["videoUrl"] = video_url
 
     return summary
 

@@ -16,6 +16,19 @@ import sys
 if str(sys_path) not in sys.path:
     sys.path.insert(0, str(sys_path))
 
+try:
+    import boto3
+except ImportError:
+    mock_boto3 = MagicMock()
+    mock_botocore = MagicMock()
+    sys.modules["boto3"] = mock_boto3
+    sys.modules["boto3.s3"] = MagicMock()
+    sys.modules["boto3.s3.transfer"] = MagicMock()
+    sys.modules["botocore"] = mock_botocore
+    sys.modules["botocore.config"] = MagicMock()
+    sys.modules["botocore.exceptions"] = MagicMock()
+    import boto3
+
 import qa_upload
 
 
@@ -192,6 +205,127 @@ class TestGoogleAuthUtils(unittest.TestCase):
         _, kwargs = mock_boto3_client.call_args
         self.assertEqual(kwargs.get("endpoint_url"), "http://localhost:4566")
         self.assertEqual(kwargs.get("aws_access_key_id"), "mock-access-key")
+
+
+class TestArtifactDetection(unittest.TestCase):
+    def test_detect_artifact_type(self):
+        cases = [
+            ("fps_metrics.csv", "fps"),
+            ("custom_fps.json", "fps"),
+            ("memory_metrics.csv", "memory"),
+            ("llm_memory.json", "memory"),
+            ("ue.log", "log"),
+            ("custom_engine.log", "log"),
+            ("notes.txt", "log"),
+            ("capture.mp4", "video"),
+            ("gameplay.webm", "video"),
+            ("screen.png", "screenshot"),
+            ("capture.jpg", "screenshot"),
+            ("crash.dmp", "crashdump"),
+            ("minidump.mdmp", "crashdump"),
+            ("profile.utrace", "trace"),
+            ("perf.trace", "trace"),
+            ("test_report.html", "report"),
+            ("summary.xml", "report"),
+            ("unrecognized.bin", "other"),
+        ]
+        for filename, expected_type in cases:
+            with self.subTest(filename=filename):
+                self.assertEqual(
+                    qa_upload.detect_artifact_type(Path(filename)),
+                    expected_type,
+                )
+
+
+class TestDiscoverUploads(unittest.TestCase):
+    def test_discover_arbitrary_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir)
+            (run_dir / "sub").mkdir()
+            (run_dir / "crash.dmp").write_bytes(b"\x00" * 16)
+            (run_dir / "screenshot.png").write_bytes(b"\x89PNG")
+            (run_dir / "sub" / "custom.utrace").write_bytes(b"trace-bytes")
+            (run_dir / "manifest.json").write_text("{}", encoding="utf-8")  # should be excluded
+            (run_dir / ".hidden_file").write_text("secret", encoding="utf-8")  # should be excluded
+
+            uploads = qa_upload.discover_uploads(run_dir, "run-test-01")
+            self.assertEqual(len(uploads), 3)
+
+            by_name = {u.local_path.name: u for u in uploads}
+            self.assertIn("crash.dmp", by_name)
+            self.assertEqual(by_name["crash.dmp"].artifact_type, "crashdump")
+            self.assertEqual(by_name["crash.dmp"].s3_key, "runs/run-test-01/crash.dmp")
+
+            self.assertIn("screenshot.png", by_name)
+            self.assertEqual(by_name["screenshot.png"].artifact_type, "screenshot")
+            self.assertEqual(by_name["screenshot.png"].s3_key, "runs/run-test-01/screenshot.png")
+
+            self.assertIn("custom.utrace", by_name)
+            self.assertEqual(by_name["custom.utrace"].artifact_type, "trace")
+            self.assertEqual(by_name["custom.utrace"].s3_key, "runs/run-test-01/sub/custom.utrace")
+
+    def test_discover_empty_directory_raises(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_dir = Path(tmpdir)
+            with self.assertRaises(ValueError) as ctx:
+                qa_upload.discover_uploads(run_dir, "run-empty")
+            self.assertIn("No child files found", str(ctx.exception))
+
+
+class TestBuildManifest(unittest.TestCase):
+    def test_build_manifest_v2(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            f1 = Path(tmpdir) / "fps_metrics.csv"
+            f1.write_text("frame,fps\n1,60.0\n", encoding="utf-8")
+            f2 = Path(tmpdir) / "crash.dmp"
+            f2.write_bytes(b"mock-crash-dump")
+
+            uploads = [
+                qa_upload.UploadFile(
+                    local_path=f1,
+                    s3_key="runs/run-100/fps_metrics.csv",
+                    artifact_type="fps",
+                ),
+                qa_upload.UploadFile(
+                    local_path=f2,
+                    s3_key="runs/run-100/crash.dmp",
+                    artifact_type="crashdump",
+                ),
+            ]
+
+            from argparse import Namespace
+
+            args = Namespace(
+                run_id="run-100",
+                executed_at="2026-09-06T12:00:00Z",
+                game_version="1.2.3",
+                platform="PS5",
+                test_name="PerformanceBenchmark",
+                result="PASSED",
+                avg_fps=59.8,
+            )
+
+            manifest = qa_upload.build_manifest(args, uploads)
+            self.assertEqual(manifest["schema_version"], "2.0")
+            self.assertEqual(manifest["run_id"], "run-100")
+            self.assertEqual(manifest["executed_at"], "2026-09-06T12:00:00Z")
+            self.assertEqual(manifest["game_version"], "1.2.3")
+            self.assertEqual(manifest["platform"], "PS5")
+            self.assertEqual(manifest["test_name"], "PerformanceBenchmark")
+            self.assertEqual(manifest["result"], "PASSED")
+            self.assertEqual(manifest["avg_fps"], 59.8)
+
+            artifacts = manifest["artifacts"]
+            self.assertEqual(len(artifacts), 2)
+            self.assertEqual(artifacts[0]["file_name"], "fps_metrics.csv")
+            self.assertEqual(artifacts[0]["type"], "fps")
+            self.assertEqual(artifacts[0]["s3_key"], "runs/run-100/fps_metrics.csv")
+            self.assertGreater(artifacts[0]["size_bytes"], 0)
+
+            self.assertEqual(artifacts[1]["file_name"], "crash.dmp")
+            self.assertEqual(artifacts[1]["type"], "crashdump")
+            self.assertEqual(artifacts[1]["s3_key"], "runs/run-100/crash.dmp")
+            self.assertEqual(artifacts[1]["size_bytes"], len(b"mock-crash-dump"))
 
 
 if __name__ == "__main__":
