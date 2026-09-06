@@ -70,6 +70,7 @@ class RunSpec:
     levels: list[str] = field(default_factory=lambda: ["PL_Level1", "PL_Level2"])
     video: bool = False  # whether this run has a captured gameplay video
     screenshots: int = 0  # number of dummy screenshot PNGs to generate
+    extra_artifacts: list[tuple[str, str, str | bytes]] = field(default_factory=list)
 
 
 RUNS = [
@@ -85,6 +86,31 @@ RUNS = [
         drops=[(60, 8, 22), (145, 5, 15), (230, 12, 25)],
         video=True,
         screenshots=3,
+        extra_artifacts=[
+            ("crash.dmp", "crashdump", b"MDMP\x93\xa7\x00\x00\x01\x00\x00\x00\x20\x00\x00\x00"),
+            ("profile.utrace", "trace", b"UTRACE\x01\x00\x00\x00\x00\x00\x00\x00"),
+            (
+                "test_report.html",
+                "report",
+                """<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Test Report - run-001</title>
+  <style>
+    body { font-family: sans-serif; background: #0f172a; color: #e2e8f0; padding: 2rem; }
+    h1 { color: #38bdf8; }
+    .status { padding: 4px 12px; border-radius: 4px; background: #ef444420; color: #f87171; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>QA Test Execution Report</h1>
+  <p><strong>Run ID:</strong> run-001</p>
+  <p><strong>Status:</strong> <span class="status">FAILED</span></p>
+</body>
+</html>""",
+            ),
+        ],
     ),
     RunSpec(
         run_id="run-002",
@@ -312,6 +338,14 @@ def main() -> None:
             artifacts.append({"url": video_url, "fileName": "video.mp4", "type": "video"})
         for shot_url in screenshot_urls:
             artifacts.append({"url": shot_url, "fileName": Path(shot_url).name, "type": "screenshot"})
+        for extra_name, extra_type, extra_content in spec.extra_artifacts:
+            extra_path = run_dir / extra_name
+            if isinstance(extra_content, bytes):
+                extra_path.write_bytes(extra_content)
+            else:
+                extra_path.write_text(extra_content, encoding="utf-8")
+            artifacts.append({"url": f"sample_data/{spec.run_id}/{extra_name}", "fileName": extra_name, "type": extra_type})
+            print(f"wrote {extra_path}")
 
         summary = {
             "runId": spec.run_id,

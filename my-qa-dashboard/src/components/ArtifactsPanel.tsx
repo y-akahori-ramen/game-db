@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  ExternalLink,
   FileArchive,
   FileText,
   Gauge,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import { downloadZip } from 'client-zip';
 import type { TestRunArtifact, TestRunArtifactType } from '../services';
+import { isBrowserOpenable } from '../utils/browserOpenable';
 
 interface Props {
   runId: string;
@@ -64,9 +66,22 @@ export default function ArtifactsPanel({ runId, artifacts }: Props) {
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const artifactHref = useCallback(
-    (artifact: TestRunArtifact) => `${import.meta.env.BASE_URL}${artifact.url}`,
-    [],
+  const artifactHref = useCallback((artifact: TestRunArtifact) => {
+    if (/^https?:\/\//i.test(artifact.url)) {
+      return artifact.url;
+    }
+    const base = import.meta.env.BASE_URL.endsWith('/')
+      ? import.meta.env.BASE_URL
+      : `${import.meta.env.BASE_URL}/`;
+    const cleanUrl = artifact.url.replace(/^\/+/, '');
+    return `${base}${cleanUrl}`;
+  }, []);
+
+  const handleOpenOne = useCallback(
+    (artifact: TestRunArtifact) => {
+      window.open(artifactHref(artifact), '_blank', 'noopener,noreferrer');
+    },
+    [artifactHref],
   );
 
   const handleDownloadOne = useCallback(
@@ -143,6 +158,7 @@ export default function ArtifactsPanel({ runId, artifacts }: Props) {
               {artifacts.map((artifact) => {
                 const Icon = TYPE_ICONS[artifact.type] ?? FileArchive;
                 const isDownloading = downloadingUrl === artifact.url;
+                const canOpen = isBrowserOpenable(artifact);
                 return (
                   <li
                     key={artifact.url}
@@ -155,18 +171,31 @@ export default function ArtifactsPanel({ runId, artifacts }: Props) {
                         {TYPE_LABELS[artifact.type] ?? artifact.type}
                       </span>
                     </div>
-                    <button
-                      onClick={() => handleDownloadOne(artifact)}
-                      disabled={isDownloading}
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isDownloading ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <Download size={12} />
-                      )}
-                      DL
-                    </button>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenOne(artifact)}
+                        disabled={!canOpen}
+                        title={canOpen ? 'ブラウザで開く' : 'この形式はブラウザで開けません'}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                      >
+                        <ExternalLink size={12} />
+                        開く
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadOne(artifact)}
+                        disabled={isDownloading}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isDownloading ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Download size={12} />
+                        )}
+                        DL
+                      </button>
+                    </div>
                   </li>
                 );
               })}
