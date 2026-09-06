@@ -67,6 +67,16 @@ const emptyMedia = extractMediaItems([
 assert.equal(emptyMedia.length, 0, 'Runs with no videos/screenshots should return empty array');
 console.log('✓ Run without media correctly returns 0 items.');
 
+console.log('\n--- 5. Testing Web-optimized Video Priority Sorting ---');
+const mixedArtifacts: TestRunArtifact[] = [
+  { url: 'runs/r1/video.mp4', fileName: 'video.mp4', type: 'video' },
+  { url: 'runs/r1/video_web.mp4', fileName: 'video_web.mp4', type: 'video' },
+];
+const mixedItems = extractMediaItems(mixedArtifacts);
+assert.equal(mixedItems[0].fileName, 'video_web.mp4', 'Web-optimized video should be sorted before raw video');
+assert.equal(mixedItems[1].fileName, 'video.mp4');
+console.log('✓ Web-optimized video is correctly prioritized first.');
+
 console.log('\n========================================');
 console.log('All Media Viewer unit verification tests PASSED!');
 console.log('========================================');

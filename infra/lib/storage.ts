@@ -34,6 +34,7 @@ export class Storage extends Construct {
       lifecycleRules: [
         {
           prefix: 'runs/',
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(7),
           transitions: [
             {
               storageClass: s3.StorageClass.GLACIER_INSTANT_RETRIEVAL,

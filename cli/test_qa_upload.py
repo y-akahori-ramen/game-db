@@ -18,12 +18,22 @@ if str(sys_path) not in sys.path:
 
 try:
     import boto3
+    from boto3.s3.transfer import TransferConfig
 except ImportError:
+    class DummyTransferConfig:
+        def __init__(self, **kwargs):
+            self.multipart_threshold = kwargs.get("multipart_threshold", 8 * 1024 * 1024)
+            self.multipart_chunksize = kwargs.get("multipart_chunksize", 8 * 1024 * 1024)
+            self.max_concurrency = kwargs.get("max_concurrency", 4)
+            self.use_threads = kwargs.get("use_threads", True)
+
     mock_boto3 = MagicMock()
     mock_botocore = MagicMock()
+    mock_transfer = MagicMock()
+    mock_transfer.TransferConfig = DummyTransferConfig
     sys.modules["boto3"] = mock_boto3
     sys.modules["boto3.s3"] = MagicMock()
-    sys.modules["boto3.s3.transfer"] = MagicMock()
+    sys.modules["boto3.s3.transfer"] = mock_transfer
     sys.modules["botocore"] = mock_botocore
     sys.modules["botocore.config"] = MagicMock()
     sys.modules["botocore.exceptions"] = MagicMock()
@@ -326,6 +336,208 @@ class TestBuildManifest(unittest.TestCase):
             self.assertEqual(artifacts[1]["type"], "crashdump")
             self.assertEqual(artifacts[1]["s3_key"], "runs/run-100/crash.dmp")
             self.assertEqual(artifacts[1]["size_bytes"], len(b"mock-crash-dump"))
+
+
+class TestFileSizeAndTransferConfig(unittest.TestCase):
+    def test_validate_file_sizes_under_limit(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "normal.bin"
+            p.write_bytes(b"x" * 1024)
+            uploads = [
+                qa_upload.UploadFile(
+                    local_path=p,
+                    s3_key="runs/r1/normal.bin",
+                    artifact_type="other",
+                )
+            ]
+            # Should not raise
+            qa_upload.validate_file_sizes(uploads, max_size_bytes=10 * 1024)
+
+    def test_validate_file_sizes_over_limit(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "huge.mp4"
+            p.write_bytes(b"x" * 2000)
+            uploads = [
+                qa_upload.UploadFile(
+                    local_path=p,
+                    s3_key="runs/r1/huge.mp4",
+                    artifact_type="video",
+                )
+            ]
+            with self.assertRaises(ValueError) as ctx:
+                qa_upload.validate_file_sizes(uploads, max_size_bytes=1000)
+            self.assertIn("CloudFront single file limit", str(ctx.exception))
+            self.assertIn("huge.mp4", str(ctx.exception))
+
+    def test_build_transfer_config_dynamic_chunksize(self):
+        # Default with small/no size: 8MB
+        cfg_default = qa_upload.build_transfer_config(0)
+        self.assertEqual(cfg_default.multipart_chunksize, 8 * 1024 * 1024)
+
+        cfg_small = qa_upload.build_transfer_config(10 * 1024 * 1024)
+        self.assertEqual(cfg_small.multipart_chunksize, 8 * 1024 * 1024)
+
+        # Huge file: 180 GB (180 * 1024^3 bytes). 180GB / 9000 ≈ 21.4 MB > 8MB
+        huge_bytes = 180 * 1024 * 1024 * 1024
+        cfg_huge = qa_upload.build_transfer_config(huge_bytes)
+        self.assertGreater(cfg_huge.multipart_chunksize, 8 * 1024 * 1024)
+        # Verify it results in <= 9000 parts (< 10,000 S3 limit)
+        part_count = (huge_bytes + cfg_huge.multipart_chunksize - 1) // cfg_huge.multipart_chunksize
+        self.assertLessEqual(part_count, 9000)
+
+
+class TestVideoTranscodeHelpers(unittest.TestCase):
+    def test_video_detection_helpers(self):
+        p_raw = Path("/tmp/video.mp4")
+        p_web = Path("/tmp/video_web.mp4")
+        p_dot_web = Path("/tmp/capture.web.mp4")
+        p_fps = Path("/tmp/fps_metrics.csv")
+
+        self.assertTrue(qa_upload.is_source_video(p_raw))
+        self.assertFalse(qa_upload.is_web_video(p_raw))
+
+        self.assertTrue(qa_upload.is_web_video(p_web))
+        self.assertFalse(qa_upload.is_source_video(p_web))
+
+        self.assertTrue(qa_upload.is_web_video(p_dot_web))
+        self.assertFalse(qa_upload.is_source_video(p_dot_web))
+
+        self.assertFalse(qa_upload.is_source_video(p_fps))
+        self.assertFalse(qa_upload.is_web_video(p_fps))
+
+        self.assertEqual(
+            qa_upload.default_web_video_path(p_raw),
+            Path("/tmp/video_web.mp4"),
+        )
+        self.assertEqual(
+            qa_upload.default_web_video_path(p_web),
+            p_web,
+        )
+
+    def test_transcode_skips_when_target_exists(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "capture.mp4"
+            src.write_bytes(b"raw-video-bytes")
+            dst = Path(td) / "capture_web.mp4"
+            dst.write_bytes(b"existing-transcoded-bytes")
+
+            # force=False should return dst without calling ffmpeg
+            res = qa_upload.transcode_to_web_mp4(src, output_path=dst, force=False)
+            self.assertEqual(res, dst)
+            self.assertEqual(dst.read_bytes(), b"existing-transcoded-bytes")
+
+    def test_transcode_raises_when_ffmpeg_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "capture.mp4"
+            src.write_bytes(b"raw-video-bytes")
+
+            with patch("qa_upload.check_ffmpeg_available", return_value=False):
+                with self.assertRaises(RuntimeError) as ctx:
+                    qa_upload.transcode_to_web_mp4(src, force=True)
+                self.assertIn("ffmpeg was not found", str(ctx.exception))
+
+    def test_transcode_executes_ffmpeg(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "capture.mp4"
+            src.write_bytes(b"raw-video-bytes")
+            dst = Path(td) / "capture_web.mp4"
+
+            def fake_run(cmd, **kwargs):
+                # Fake successful ffmpeg execution: write target file
+                dst.write_bytes(b"new-web-video-bytes")
+                return MagicMock(returncode=0, stdout="", stderr="")
+
+            with patch("qa_upload.check_ffmpeg_available", return_value=True):
+                with patch("subprocess.run", side_effect=fake_run) as mock_sub:
+                    res = qa_upload.transcode_to_web_mp4(
+                        src, output_path=dst, resolution="1080p", crf=23, preset="fast"
+                    )
+                    self.assertEqual(res, dst)
+                    self.assertTrue(dst.exists())
+                    # Check ffmpeg command arguments
+                    called_cmd = mock_sub.call_args[0][0]
+                    self.assertEqual(called_cmd[0], "ffmpeg")
+                    self.assertIn("+faststart", called_cmd)
+                    self.assertIn("libx264", called_cmd)
+                    self.assertIn("aac", called_cmd)
+
+    def test_ensure_transcoded_videos_skips_when_skip_flag_set(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "video.mp4"
+            src.write_bytes(b"mock-video")
+
+            with patch("qa_upload.transcode_to_web_mp4") as mock_tc:
+                res = qa_upload.ensure_transcoded_videos(Path(td), skip_transcode=True)
+                self.assertEqual(res, [])
+                mock_tc.assert_not_called()
+
+    def test_ensure_transcoded_videos_auto_transcodes(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "video.mp4"
+            src.write_bytes(b"mock-video")
+            expected_web = Path(td) / "video_web.mp4"
+
+            with patch("qa_upload.transcode_to_web_mp4", return_value=expected_web) as mock_tc:
+                res = qa_upload.ensure_transcoded_videos(Path(td), skip_transcode=False)
+                self.assertEqual(res, [expected_web])
+                mock_tc.assert_called_once()
+
+    def test_manifest_sorts_web_video_first(self):
+        with tempfile.TemporaryDirectory() as td:
+            f_raw = Path(td) / "video.mp4"
+            f_web = Path(td) / "video_web.mp4"
+            f_fps = Path(td) / "fps_metrics.csv"
+            for f in (f_raw, f_web, f_fps):
+                f.write_bytes(b"data")
+
+            uploads = [
+                qa_upload.UploadFile(local_path=f_raw, s3_key="runs/r/video.mp4", artifact_type="video"),
+                qa_upload.UploadFile(local_path=f_fps, s3_key="runs/r/fps_metrics.csv", artifact_type="fps"),
+                qa_upload.UploadFile(local_path=f_web, s3_key="runs/r/video_web.mp4", artifact_type="video"),
+            ]
+            from argparse import Namespace
+            args = Namespace(
+                run_id="r1",
+                executed_at="2026-09-06T12:00:00Z",
+                game_version="1.0.0",
+                platform="Win64",
+                test_name="Test",
+                result="PASSED",
+                avg_fps=60.0,
+            )
+            manifest = qa_upload.build_manifest(args, uploads)
+            art_files = [a["file_name"] for a in manifest["artifacts"]]
+            # fps comes first, then video_web.mp4, then raw video.mp4
+            self.assertEqual(art_files, ["fps_metrics.csv", "video_web.mp4", "video.mp4"])
+
+
+class TestCliParser(unittest.TestCase):
+    def test_transcode_subcommand_args(self):
+        with patch("sys.argv", ["qa_upload.py", "transcode", "some/path/video.mp4", "--resolution", "720p"]):
+            args = qa_upload.parse_args()
+            self.assertEqual(args.command, "transcode")
+            self.assertEqual(str(args.source), "some/path/video.mp4")
+            self.assertEqual(args.resolution, "720p")
+            self.assertEqual(args.crf, 23)
+
+    def test_upload_transcode_flags(self):
+        with patch("sys.argv", [
+            "qa_upload.py",
+            "upload",
+            "--run-id", "r1",
+            "--run-dir", "/tmp",
+            "--bucket", "b",
+            "--game-version", "1",
+            "--platform", "PS5",
+            "--test-name", "T",
+            "--result", "PASSED",
+            "--avg-fps", "60.0",
+            "--skip-transcode",
+        ]):
+            args = qa_upload.parse_args()
+            self.assertEqual(args.command, "upload")
+            self.assertTrue(args.skip_transcode)
+            self.assertFalse(args.force_transcode)
 
 
 if __name__ == "__main__":

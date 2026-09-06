@@ -24,6 +24,8 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -36,17 +38,29 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
-import boto3
-from boto3.s3.transfer import TransferConfig
-from botocore.config import Config
-from botocore.exceptions import (
-    BotoCoreError,
-    ClientError,
-    NoCredentialsError,
-    ProfileNotFound,
-)
+try:
+    import boto3
+    from boto3.s3.transfer import TransferConfig
+    from botocore.config import Config
+    from botocore.exceptions import (
+        BotoCoreError,
+        ClientError,
+        NoCredentialsError,
+        ProfileNotFound,
+    )
+except ImportError:
+    boto3 = None  # type: ignore[assignment]
+    TransferConfig = None  # type: ignore[assignment]
+    Config = None  # type: ignore[assignment]
+    BotoCoreError = Exception  # type: ignore[assignment]
+    ClientError = Exception  # type: ignore[assignment]
+    NoCredentialsError = Exception  # type: ignore[assignment]
+    ProfileNotFound = Exception  # type: ignore[assignment]
 
 RESULT_CHOICES = ("PASSED", "FAILED")
+
+# CloudFront single object cache / maximum file limit: 30 GiB
+MAX_SINGLE_FILE_SIZE_BYTES = 30 * 1024 * 1024 * 1024
 
 GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
@@ -427,6 +441,10 @@ def create_s3_client(args: argparse.Namespace):
 
     or standard AWS IAM credentials / profile.
     """
+    if boto3 is None:
+        raise RuntimeError(
+            "boto3 is required for S3 upload. Please install boto3 or run with: uv run cli/qa_upload.py"
+        )
     role_arn = getattr(args, "role_arn", None) or os.environ.get(
         "GAME_QA_UPLOAD_ROLE_ARN"
     )
@@ -604,8 +622,58 @@ def parse_args() -> argparse.Namespace:
         default="ap-northeast-1",
         help="AWS region for S3/STS (default: ap-northeast-1).",
     )
+    upload.add_argument(
+        "--skip-transcode",
+        action="store_true",
+        help="Skip automatic video transcoding even if web-optimized video is missing.",
+    )
+    upload.add_argument(
+        "--force-transcode",
+        action="store_true",
+        help="Force re-transcoding even if web-optimized video already exists.",
+    )
 
-    # 2. login command
+    # 2. transcode command
+    transcode = subparsers.add_parser(
+        "transcode",
+        help="Transcode video to web-optimized MP4 (H.264, AAC, +faststart).",
+    )
+    transcode.add_argument(
+        "source",
+        type=Path,
+        help="Path to source video file or directory containing videos.",
+    )
+    transcode.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="Path to output web-optimized video file (default: <stem>_web.mp4).",
+    )
+    transcode.add_argument(
+        "--resolution",
+        choices=("1080p", "720p", "original"),
+        default="1080p",
+        help="Output resolution (default: 1080p).",
+    )
+    transcode.add_argument(
+        "--crf",
+        type=int,
+        default=23,
+        help="Constant Rate Factor for x264 (default: 23, lower=higher quality).",
+    )
+    transcode.add_argument(
+        "--preset",
+        default="fast",
+        help="x264 encoding preset (default: fast).",
+    )
+    transcode.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Force re-transcoding even if output file already exists.",
+    )
+
+    # 3. login command
     login = subparsers.add_parser(
         "login",
         help="Perform interactive Google Account login and save credentials.",
@@ -711,6 +779,195 @@ def detect_artifact_type(file_path: Path) -> str:
     return "other"
 
 
+def is_web_video(file_path: Path) -> bool:
+    """Check if a video file is already transcoded for web playback."""
+    name = file_path.name.lower()
+    return name.endswith("_web.mp4") or ".web." in name
+
+
+def is_source_video(file_path: Path) -> bool:
+    """Check if a file is an original/source video that can be transcoded."""
+    return detect_artifact_type(file_path) == "video" and not is_web_video(file_path)
+
+
+def default_web_video_path(source_video_path: Path) -> Path:
+    """Return default target path for web-optimized video (e.g., video.mp4 -> video_web.mp4)."""
+    stem = source_video_path.stem
+    if stem.endswith("_web"):
+        return source_video_path
+    return source_video_path.parent / f"{stem}_web.mp4"
+
+
+def validate_file_sizes(
+    uploads: list[UploadFile], max_size_bytes: int = MAX_SINGLE_FILE_SIZE_BYTES
+) -> None:
+    """Ensure no file exceeds CloudFront's single object limit (default 30 GiB)."""
+    oversized: list[tuple[str, int]] = []
+    for u in uploads:
+        size = u.local_path.stat().st_size
+        if size > max_size_bytes:
+            oversized.append((u.local_path.name, size))
+
+    if oversized:
+        details = "\n".join(
+            f"  - {name}: {human_size(sz)} (exceeds limit of {human_size(max_size_bytes)})"
+            for name, sz in oversized
+        )
+        raise ValueError(
+            f"One or more files exceed the maximum allowed size of {human_size(max_size_bytes)} "
+            f"(CloudFront single file limit):\n{details}\n"
+            f"Please compress or remove oversized files before uploading."
+        )
+
+
+def check_ffmpeg_available() -> bool:
+    return shutil.which("ffmpeg") is not None
+
+
+def transcode_to_web_mp4(
+    source_path: Path,
+    output_path: Path | None = None,
+    resolution: str = "1080p",
+    crf: int = 23,
+    preset: str = "fast",
+    force: bool = False,
+) -> Path:
+    """Transcode a source video into a web-optimized MP4 with +faststart and H.264/AAC."""
+    if not source_path.exists():
+        raise ValueError(f"Source video file does not exist: {source_path}")
+
+    target_path = output_path or default_web_video_path(source_path)
+    if target_path.resolve() == source_path.resolve():
+        raise ValueError(
+            f"Target output path '{target_path}' cannot be identical to source video '{source_path}'."
+        )
+
+    if target_path.exists() and not force:
+        print(
+            f"Web-optimized video already exists: {target_path.name} ({human_size(target_path.stat().st_size)}). "
+            f"Skipping transcode (use --force to re-encode)."
+        )
+        return target_path
+
+    if not check_ffmpeg_available():
+        raise RuntimeError(
+            "ffmpeg was not found on system PATH. ffmpeg is required to transcode videos for web playback.\n"
+            "Please install ffmpeg (e.g. `brew install ffmpeg` on macOS, or `apt install ffmpeg` on Ubuntu) "
+            "or use `--skip-transcode` to proceed with existing files."
+        )
+
+    scale_filters = {
+        "1080p": "scale='min(1920,iw)':-2",
+        "720p": "scale='min(1280,iw)':-2",
+        "original": None,
+    }
+    vf = scale_filters.get(resolution, "scale='min(1920,iw)':-2")
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(source_path),
+        "-c:v",
+        "libx264",
+        "-crf",
+        str(crf),
+        "-preset",
+        preset,
+    ]
+    if vf:
+        cmd.extend(["-vf", vf])
+    cmd.extend(
+        [
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            "-pix_fmt",
+            "yuv420p",
+            str(target_path),
+        ]
+    )
+
+    src_size = source_path.stat().st_size
+    print(
+        f"Transcoding {source_path.name} ({human_size(src_size)}) -> {target_path.name} "
+        f"[H.264, {resolution}, CRF {crf}, preset {preset}, +faststart]..."
+    )
+    start_time = time.time()
+    try:
+        res = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        if res.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg transcode failed with exit code {res.returncode}:\n{res.stderr}"
+            )
+    except FileNotFoundError:
+        raise RuntimeError("ffmpeg was not found on system PATH.")
+
+    elapsed = time.time() - start_time
+    dst_size = target_path.stat().st_size
+    ratio = (dst_size / src_size * 100) if src_size > 0 else 100
+    print(
+        f"Transcoded successfully in {elapsed:.1f}s: {human_size(dst_size)} ({ratio:.1f}% of original)."
+    )
+    return target_path
+
+
+def ensure_transcoded_videos(
+    run_dir: Path,
+    skip_transcode: bool = False,
+    resolution: str = "1080p",
+    crf: int = 23,
+    preset: str = "fast",
+    force: bool = False,
+) -> list[Path]:
+    """Find source videos in run_dir. If *_web.mp4 does not exist and skip_transcode is False, transcode."""
+    if skip_transcode:
+        print("Skipping video transcoding (--skip-transcode specified).")
+        return []
+
+    source_videos: list[Path] = []
+    for entry in sorted(run_dir.rglob("*")):
+        if not entry.is_file():
+            continue
+        if entry.name.startswith("."):
+            continue
+        if is_source_video(entry):
+            source_videos.append(entry)
+
+    if not source_videos:
+        return []
+
+    transcoded_paths: list[Path] = []
+    for src in source_videos:
+        web_path = default_web_video_path(src)
+        if web_path.exists() and not force:
+            print(
+                f"Found existing web video: {web_path.name} ({human_size(web_path.stat().st_size)}). "
+                f"Skipping transcode."
+            )
+            transcoded_paths.append(web_path)
+        else:
+            print(
+                f"Web video not found for {src.name}. Auto-transcoding for web playback..."
+            )
+            transcoded = transcode_to_web_mp4(
+                source_path=src,
+                output_path=web_path,
+                resolution=resolution,
+                crf=crf,
+                preset=preset,
+                force=force,
+            )
+            transcoded_paths.append(transcoded)
+
+    return transcoded_paths
+
+
 def discover_uploads(run_dir: Path, run_id: str) -> list[UploadFile]:
     if not run_dir.exists():
         raise ValueError(f"--run-dir does not exist: {run_dir}")
@@ -741,10 +998,18 @@ def discover_uploads(run_dir: Path, run_id: str) -> list[UploadFile]:
     return uploads
 
 
-def build_transfer_config() -> TransferConfig:
+def build_transfer_config(max_file_size: int = 0) -> TransferConfig:
+    # S3 multipart uploads are limited to at most 10,000 parts.
+    # Default chunksize is 8MB, supporting up to 80,000MB (~78.1 GiB).
+    # For large files, scale chunksize dynamically to comfortably stay under 10,000 parts.
+    chunksize = 8 * 1024 * 1024
+    if max_file_size > 0:
+        required_chunk = (max_file_size + 8999) // 9000
+        chunksize = max(chunksize, required_chunk)
+
     return TransferConfig(
-        multipart_threshold=8 * 1024 * 1024,
-        multipart_chunksize=8 * 1024 * 1024,
+        multipart_threshold=chunksize,
+        multipart_chunksize=chunksize,
         max_concurrency=4,
         use_threads=True,
     )
@@ -753,7 +1018,8 @@ def build_transfer_config() -> TransferConfig:
 def upload_child_files(
     s3_client: Any, bucket: str, uploads: list[UploadFile]
 ) -> None:
-    transfer_config = build_transfer_config()
+    max_file_size = max((u.local_path.stat().st_size for u in uploads), default=0)
+    transfer_config = build_transfer_config(max_file_size)
 
     for upload in uploads:
         size = upload.local_path.stat().st_size
@@ -773,6 +1039,25 @@ def upload_child_files(
 def build_manifest(
     args: argparse.Namespace, uploads: list[UploadFile]
 ) -> dict[str, Any]:
+    # Sort uploads: fps, memory, log, web_video, other videos, screenshots, etc.
+    # Web-optimized videos are prioritized over raw videos so Search Lambda picks web video for videoUrl.
+    def sort_key(u: UploadFile) -> tuple[int, str]:
+        if is_web_video(u.local_path):
+            return (3, u.local_path.name)
+        type_priority = {
+            "fps": 0,
+            "memory": 1,
+            "log": 2,
+            "video": 4,
+            "screenshot": 5,
+            "crashdump": 6,
+            "trace": 7,
+            "report": 8,
+            "other": 9,
+        }
+        return (type_priority.get(u.artifact_type, 9), u.local_path.name)
+
+    sorted_uploads = sorted(uploads, key=sort_key)
     artifacts = [
         {
             "file_name": u.local_path.name,
@@ -780,7 +1065,7 @@ def build_manifest(
             "type": u.artifact_type,
             "size_bytes": u.local_path.stat().st_size,
         }
-        for u in uploads
+        for u in sorted_uploads
     ]
     return {
         "schema_version": "2.0",
@@ -816,7 +1101,22 @@ def upload_manifest(
 def handle_upload(args: argparse.Namespace) -> int:
     try:
         args.executed_at = validate_executed_at(args.executed_at)
-        uploads = discover_uploads(args.run_dir.resolve(), args.run_id)
+        run_dir = args.run_dir.resolve()
+
+        # Step 1: Auto-transcode missing web videos unless skipped
+        ensure_transcoded_videos(
+            run_dir=run_dir,
+            skip_transcode=args.skip_transcode,
+            force=args.force_transcode,
+        )
+
+        # Step 2: Discover upload files (including any newly generated web videos)
+        uploads = discover_uploads(run_dir, args.run_id)
+
+        # Step 3: Validate file size limits (30GB CloudFront single file limit)
+        validate_file_sizes(uploads)
+
+        # Step 4: S3 uploads
         s3_client = create_s3_client(args)
         upload_child_files(s3_client, args.bucket, uploads)
         manifest = build_manifest(args, uploads)
@@ -854,6 +1154,37 @@ def handle_upload(args: argparse.Namespace) -> int:
 
     print(f"Run {args.run_id} uploaded successfully.")
     return 0
+
+
+def handle_transcode(args: argparse.Namespace) -> int:
+    source: Path = args.source.resolve()
+    if not source.exists():
+        print(f"Error: Source does not exist: {source}", file=sys.stderr)
+        return 1
+
+    try:
+        if source.is_dir():
+            ensure_transcoded_videos(
+                run_dir=source,
+                skip_transcode=False,
+                resolution=args.resolution,
+                crf=args.crf,
+                preset=args.preset,
+                force=args.force,
+            )
+        else:
+            transcode_to_web_mp4(
+                source_path=source,
+                output_path=args.output.resolve() if args.output else None,
+                resolution=args.resolution,
+                crf=args.crf,
+                preset=args.preset,
+                force=args.force,
+            )
+        return 0
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
 
 def handle_login(args: argparse.Namespace) -> int:
@@ -921,6 +1252,8 @@ def main() -> int:
     args = parse_args()
     if args.command == "upload":
         return handle_upload(args)
+    if args.command == "transcode":
+        return handle_transcode(args)
     if args.command == "login":
         return handle_login(args)
     if args.command == "logout":

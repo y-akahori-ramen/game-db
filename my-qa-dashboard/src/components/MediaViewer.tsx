@@ -23,6 +23,7 @@ import {
 import type { TestRunArtifact } from '../services';
 import {
   extractMediaItems,
+  isWebOptimizedVideo,
   toMediaUrl,
   type MediaItem,
 } from '../utils/mediaHelpers';
@@ -427,11 +428,13 @@ export default function MediaViewer({
                         <span
                           className={`absolute bottom-1 right-1 rounded px-1 py-0.5 text-[9px] font-mono font-semibold uppercase tracking-wider backdrop-blur-xs ${
                             isVideo
-                              ? 'bg-purple-900/80 text-purple-200'
+                              ? isWebOptimizedVideo(item.fileName)
+                                ? 'bg-cyan-900/90 text-cyan-200 border border-cyan-500/40'
+                                : 'bg-purple-900/80 text-purple-200'
                               : 'bg-slate-900/80 text-cyan-300'
                           }`}
                         >
-                          {isVideo ? 'MP4' : 'PNG'}
+                          {isVideo ? (isWebOptimizedVideo(item.fileName) ? 'WEB MP4' : 'RAW MP4') : 'PNG'}
                         </span>
                       </div>
 
@@ -449,7 +452,11 @@ export default function MediaViewer({
 
                       {/* Sub-label */}
                       <span className="text-[10px] text-slate-500">
-                        {isVideo ? '動画ファイル' : 'スクリーンショット'}
+                        {isVideo
+                          ? isWebOptimizedVideo(item.fileName)
+                            ? 'Web配信用 (軽量)'
+                            : '元動画 (アーカイブ)'
+                          : 'スクリーンショット'}
                       </span>
                     </button>
                   );
@@ -461,6 +468,7 @@ export default function MediaViewer({
                 {filteredItems.map((item) => {
                   const isSelected = selectedItem?.id === item.id;
                   const isVideo = item.type === 'video';
+                  const isWeb = isVideo && isWebOptimizedVideo(item.fileName);
                   return (
                     <button
                       key={item.id}
@@ -473,7 +481,10 @@ export default function MediaViewer({
                       }`}
                     >
                       {isVideo ? (
-                        <FileVideo size={16} className="shrink-0 text-purple-400" />
+                        <FileVideo
+                          size={16}
+                          className={`shrink-0 ${isWeb ? 'text-cyan-400' : 'text-purple-400'}`}
+                        />
                       ) : (
                         <FileImage size={16} className="shrink-0 text-emerald-400" />
                       )}
@@ -483,11 +494,13 @@ export default function MediaViewer({
                       <span
                         className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-mono uppercase ${
                           isVideo
-                            ? 'bg-purple-950 text-purple-300 border border-purple-800/40'
+                            ? isWeb
+                              ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/50'
+                              : 'bg-purple-950 text-purple-300 border border-purple-800/40'
                             : 'bg-slate-800 text-slate-400'
                         }`}
                       >
-                        {isVideo ? 'VIDEO' : 'IMG'}
+                        {isVideo ? (isWeb ? 'WEB' : 'RAW') : 'IMG'}
                       </span>
                     </button>
                   );
@@ -545,13 +558,31 @@ export default function MediaViewer({
               {selectedItem && (
                 <div className="flex items-center gap-2 truncate">
                   {selectedItem.type === 'video' ? (
-                    <FileVideo size={16} className="shrink-0 text-purple-400" />
+                    <FileVideo
+                      size={16}
+                      className={`shrink-0 ${
+                        isWebOptimizedVideo(selectedItem.fileName)
+                          ? 'text-cyan-400'
+                          : 'text-purple-400'
+                      }`}
+                    />
                   ) : (
                     <FileImage size={16} className="shrink-0 text-emerald-400" />
                   )}
                   <span className="truncate text-xs font-semibold text-slate-200">
                     {selectedItem.fileName}
                   </span>
+                  {selectedItem.type === 'video' && (
+                    <span
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-mono font-medium ${
+                        isWebOptimizedVideo(selectedItem.fileName)
+                          ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/50'
+                          : 'bg-purple-950 text-purple-300 border border-purple-800/40'
+                      }`}
+                    >
+                      {isWebOptimizedVideo(selectedItem.fileName) ? 'Web最適化' : '元動画'}
+                    </span>
+                  )}
                 </div>
               )}
             </div>

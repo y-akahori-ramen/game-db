@@ -28,6 +28,11 @@ export function toMediaUrl(url: string, baseUrl = '/'): string {
   return `${base}${clean}`;
 }
 
+export function isWebOptimizedVideo(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  return lower.endsWith('_web.mp4') || lower.includes('.web.');
+}
+
 export function extractMediaItems(
   artifacts: TestRunArtifact[] = [],
   videoUrl?: string,
@@ -75,10 +80,16 @@ export function extractMediaItems(
     }
   }
 
-  // 3. Sort: Videos first, then Screenshots; secondary sort by fileName
+  // 3. Sort: Web-optimized videos first, then other videos, then screenshots; then by fileName
   return items.sort((a, b) => {
     if (a.type !== b.type) {
       return a.type === 'video' ? -1 : 1;
+    }
+    if (a.type === 'video' && b.type === 'video') {
+      const aWeb = isWebOptimizedVideo(a.fileName);
+      const bWeb = isWebOptimizedVideo(b.fileName);
+      if (aWeb && !bWeb) return -1;
+      if (!aWeb && bWeb) return 1;
     }
     return a.fileName.localeCompare(b.fileName, undefined, { numeric: true });
   });

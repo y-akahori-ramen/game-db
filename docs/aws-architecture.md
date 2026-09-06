@@ -123,11 +123,13 @@ s3://qa-data/runs/{run_id}/
     fps_metrics.csv
     memory_metrics.csv
     ue.log
-    capture.mp4
+    capture.mp4          ← 元動画（アーカイブ用、最大30GB）
+    capture_web.mp4      ← Web配信用軽量動画（1080p, H.264/AAC, +faststart）
 ```
 
 - `manifest.json` が結果サマリと子ファイル（fps/memory/log/動画）のS3キーを持つ。
   「run 1件 = manifest 1オブジェクト」になり、検索時の集約処理が不要。
+- 動画はCLI側でWeb配信用動画（`*_web.mp4`）が自動生成され、マニフェスト内で優先指定されるため、Media Viewerでは即時再生と軽快なシークが可能。
 - CLIは **子ファイルを先に、manifestを最後に** PUTする。
   「manifestが存在する = runが完全」という不変条件になり、アップロード途中のrunが検索に出ない。
 
@@ -223,7 +225,12 @@ DynamoDBテーブル設計:
 ### 6. データ配信 — CloudFront経由
 
 - データバケットは **OAC（Origin Access Control）でCloudFrontからのみ読み取り可** にし、S3直アクセスを遮断。
-- 動画: CloudFrontはRange GET・キャッシュが効き、エグレス単価もS3直より低い。
+- **CloudFront定額プランの活用**: 社内向けサービスとしてデータ転送量は定額プラン内に収まる見込みであり、エグレス転送料金の予測可能性を確保。
+- **30GB 単一ファイル上限**: CloudFrontの単一オブジェクト上限（30GB）を超えるファイルは扱わず、アップロードCLI側で事前に検知・ブロック。
+- **動画ストリーミングの最適化**:
+  - Web画面（Media Viewer）では、CLIで事前トランスコードされたWeb用軽量動画（`*_web.mp4`、`+faststart` 適用）を優先再生。
+  - 数十GBの元動画をブラウザで開く際の初期メタデータ取得遅延やシークのカクつき、ブラウザのOOMクラッシュを防止。
+  - 元動画（アーカイブ用）は成果物一覧より直接ダウンロード可能。
 - フロント側は `TestRunSummary` のURLを `/data/runs/{run_id}/...` にするだけで、既存の `loadRemoteFile` → DuckDB登録のフローがそのまま動作（Google 認証 Cookie はブラウザから同一オリジンへ自動送信され、Lambda@Edge が検証）。
 
 ---

@@ -77,7 +77,21 @@ uv run cli/qa_upload.py upload \
   --avg-fps 59.8
 ```
 
-### 3. 認証状態の確認 (`whoami`)
+### 3. 動画トランスコード (`transcode`)
+
+大容量動画（数十GB）をWebダッシュボードで遅延なく快適に再生するために、Web最適化MP4（H.264 / AAC / `faststart` 適用）へ変換します。
+
+```sh
+# 単一動画ファイルをトランスコード (例: capture.mp4 -> capture_web.mp4)
+uv run cli/qa_upload.py transcode ./local_run_folder/capture.mp4
+
+# ディレクトリ内のすべての元動画を一括トランスコード
+uv run cli/qa_upload.py transcode ./local_run_folder/ --resolution 1080p --crf 23
+```
+
+※ `upload` コマンド実行時、対象ディレクトリに `*_web.mp4` が存在しない場合は**自動的にトランスコードが実行**されます（すでに存在する場合はトランスコードをスキップして即アップロードに進みます）。
+
+### 4. 認証状態の確認 (`whoami`)
 
 現在ログイン中の Google アカウントやトークンの有効期限を確認できます：
 
@@ -94,7 +108,7 @@ Expires at:     2026-09-06T12:00:00+00:00 (VALID)
 Refresh token:  Present (auto-refresh enabled)
 ```
 
-### 4. ログアウト (`logout`)
+### 5. ログアウト (`logout`)
 
 キャッシュされた Google 認証情報を削除します：
 
@@ -119,6 +133,8 @@ uv run cli/qa_upload.py logout
 | `--result` | — | 結果 (`PASSED` または `FAILED`)（必須） |
 | `--avg-fps` | — | 平均 FPS（必須） |
 | `--executed-at` | — | 実行時刻（UTC ISO8601、省略時は現在時刻） |
+| `--skip-transcode` | — | Web最適化動画が存在しない場合でも自動トランスコードをスキップする |
+| `--force-transcode` | — | 既存のWeb最適化動画があっても強制的に再トランスコードする |
 | `--role-arn` | `GAME_QA_UPLOAD_ROLE_ARN` | Google Web Identity で Assume する IAM ロール ARN |
 | `--google-client-id` | `GOOGLE_CLIENT_ID` | Google OAuth 2.0 クライアント ID |
 | `--google-client-secret` | `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 クライアントシークレット（デスクトップアプリでは通常不要） |
@@ -127,17 +143,32 @@ uv run cli/qa_upload.py logout
 | `--profile` | — | 従来の AWS プロファイル（Google 認証ではなく IAM で実行する場合に使用） |
 | `--region` | — | AWS リージョン（デフォルト: `ap-northeast-1`） |
 
+### `transcode` Options
+
+| オプション | デフォルト | 説明 |
+| --- | --- | --- |
+| `source` | （必須） | 入力動画ファイルパス、または動画を含むディレクトリパス |
+| `-o`, `--output` | `<stem>_web.mp4` | 出力ファイルパス（単一ファイル変換時のみ） |
+| `--resolution` | `1080p` | 出力解像度 (`1080p`, `720p`, `original`) |
+| `--crf` | `23` | x264 の品質係数（CRF値、小さいほど高品質） |
+| `--preset` | `fast` | x264 エンコードプリセット |
+| `-f`, `--force` | `false` | 出力先が既に存在する場合でも強制的に上書き再エンコード |
+
 ---
 
-## Behavior & Architecture
+## Behavior & Safety
 
-- **ファイル検知**: `--run-dir` 内の以下の認識対象ファイルを自動検出します（最低1つ以上必要）:
-  - `fps_metrics.csv`
-  - `memory_metrics.csv`
-  - `ue.log`
-  - `capture.mp4`
+- **30GB 単一ファイル上限チェック (CloudFront制限)**:
+  - アップロード前に全ファイルのサイズを検証します。
+  - CloudFront の単一オブジェクト制限である **30 GB (30 GiB)** を超えるファイルが存在する場合、アップロードを即座に中止しエラーを表示します。
+- **動画トランスコードの自動連携**:
+  - 元動画ファイル（`capture.mp4`, `video.mp4` 等）を検出した場合、対応する `*_web.mp4` の存在を確認します。
+  - 存在しない場合は `ffmpeg` を用いて Web 最適化動画（H.264/AAC, `faststart` 適用）を自動生成します。
+  - 生成された Web 用動画と元動画（アーカイブ用）の双方が S3 にアップロードされ、マニフェストには Web 動画が優先されるように登録されます。
+- **S3 マルチパート動的チャンクサイズ**:
+  - ファイルサイズに応じてチャンクサイズを動的に計算し、S3 の最大 10,000 パーツ制限によるアップロード失敗を回避します。
 - **順序保証（アトミックな公開）**:
   - 子ファイル群を先にマルチパートアップロードで PUT します。
   - すべての子ファイルのアップロードが完了した後、最後に `manifest.json` を PUT します。
   - S3 の `ObjectCreated` イベント通知（`suffix: manifest.json`）がトリガーとなり、manifest インデクサ Lambda が DynamoDB 検索インデックスへ自動登録します。
-- **依存関係**: PEP 723 インラインメタデータにより、`uv run` 実行時に `boto3` が自動セットアップされます。
+- **依存関係**: PEP 723 インラインメタデータにより、`uv run` 実行時に `boto3` が自動セットアップされます。トランスコードにはローカル環境の `ffmpeg` を使用します。
