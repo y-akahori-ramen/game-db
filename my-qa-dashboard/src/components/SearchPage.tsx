@@ -11,7 +11,6 @@ import {
   Loader2,
   RotateCcw,
   Search,
-  Sparkles,
   X,
   XCircle,
 } from 'lucide-react';
@@ -149,12 +148,6 @@ export default function SearchPage({
   };
 
   const clearSelection = () => setSelectedRunIds([]);
-
-  const handleSelectLatestTwo = () => {
-    if (sortedRuns.length >= 2) {
-      setSelectedRunIds([sortedRuns[0].runId, sortedRuns[1].runId]);
-    }
-  };
 
   const handleCompareSelected = () => {
     if (selectedRunIds.length === 2 && onCompareRuns) {
@@ -316,25 +309,6 @@ export default function SearchPage({
               <ArrowLeftRight size={14} /> 2件のテストを比較 (Compare)
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Quick Compare Assistant bar when filtered by testName */}
-      {testName && sortedRuns.length >= 2 && selectedRunIds.length === 0 && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/30 px-4 py-2.5 text-xs text-slate-400">
-          <div className="flex items-center gap-2">
-            <Sparkles size={14} className="text-cyan-400" />
-            <span>
-              「<strong className="text-slate-200">{testName}</strong>」のテストランが{' '}
-              <strong className="text-cyan-300">{sortedRuns.length}</strong> 件あります。異なる日付データを比較できます。
-            </span>
-          </div>
-          <button
-            onClick={handleSelectLatestTwo}
-            className="inline-flex items-center gap-1.5 rounded-md border border-cyan-700/60 bg-cyan-950/40 px-3 py-1 font-medium text-cyan-300 hover:bg-cyan-900/50 transition-colors"
-          >
-            <ArrowLeftRight size={12} /> 直近2件を選択
-          </button>
         </div>
       )}
 
