@@ -19,6 +19,7 @@ import FpsChart from './components/FpsChart';
 import MemoryChart from './components/MemoryChart';
 import LogTable, { UE_LOG_TABLE } from './components/LogTable';
 import SearchPage from './components/SearchPage';
+import ComparePage from './components/ComparePage';
 import ArtifactsPanel from './components/ArtifactsPanel';
 import { useAppRouter } from './router';
 import { parseUeLogText } from './utils/ueLogParser';
@@ -42,6 +43,7 @@ export default function App() {
     queryParams,
     navigateToSearch,
     navigateToRun,
+    navigateToCompare,
     updateQueryParams,
     getShareableUrl,
   } = useAppRouter();
@@ -245,7 +247,7 @@ export default function App() {
       <header className="border-b border-slate-800 bg-slate-900/60 px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            {route.name === 'dashboard' && (
+            {(route.name === 'dashboard' || route.name === 'compare') && (
               <button
                 onClick={navigateToSearch}
                 className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1.5 text-sm text-slate-200 hover:bg-slate-800 transition-colors"
@@ -255,7 +257,11 @@ export default function App() {
             )}
             <Activity className="text-cyan-400" size={24} />
             <h1 className="text-lg font-semibold">
-              {route.name === 'search' ? 'Test Run Search' : 'Game QA Analytics Dashboard'}
+              {route.name === 'search'
+                ? 'Test Run Search'
+                : route.name === 'compare'
+                  ? 'Test Run Comparison (Diff)'
+                  : 'Game QA Analytics Dashboard'}
             </h1>
           </div>
           {route.name === 'dashboard' && selectedRun && (
@@ -311,7 +317,20 @@ export default function App() {
       </header>
 
       {route.name === 'search' ? (
-        <SearchPage onOpenRun={handleOpenRun} />
+        <SearchPage onOpenRun={handleOpenRun} onCompareRuns={navigateToCompare} />
+      ) : route.name === 'compare' && route.compareRunIds ? (
+        <ComparePage
+          runAId={route.compareRunIds[0]}
+          runBId={route.compareRunIds[1]}
+          onBackToSearch={navigateToSearch}
+          onSwapRuns={() =>
+            navigateToCompare(route.compareRunIds![1], route.compareRunIds![0])
+          }
+          loadRemoteFile={loadRemoteFile}
+          executeQuery={executeQuery}
+          duckDbStatus={status}
+          getShareableUrl={(ids) => getShareableUrl(ids)}
+        />
       ) : (
         <main className="p-6 space-y-6">
           {/* Artifacts produced by the run */}

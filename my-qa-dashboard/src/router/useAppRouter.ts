@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 
 export interface RouteState {
-  name: 'search' | 'dashboard';
+  name: 'search' | 'dashboard' | 'compare';
   runId?: string;
+  compareRunIds?: [string, string];
 }
 
 export interface QueryParams {
@@ -35,6 +36,43 @@ function parseRoute(): { route: RouteState; params: QueryParams } {
   }
   if (logParam !== null && !isNaN(Number(logParam))) {
     params.log = Number(logParam);
+  }
+
+  // Matches /compare/:runA/:runB
+  const compareMatch = /^\/compare\/([^/?#]+)\/([^/?#]+)/.exec(path);
+  if (compareMatch) {
+    return {
+      route: {
+        name: 'compare',
+        compareRunIds: [decodeURIComponent(compareMatch[1]), decodeURIComponent(compareMatch[2])],
+      },
+      params,
+    };
+  }
+
+  // Matches /compare?a=run-001&b=run-002 or ?runs=run-001,run-002
+  if (path === '/compare' || path.startsWith('/compare/')) {
+    const aParam = searchParams.get('a');
+    const bParam = searchParams.get('b');
+    const runsParam = searchParams.get('runs');
+    let runA = aParam;
+    let runB = bParam;
+    if (!runA && !runB && runsParam) {
+      const parts = runsParam.split(',').map((p) => p.trim());
+      if (parts.length >= 2) {
+        runA = parts[0];
+        runB = parts[1];
+      }
+    }
+    if (runA && runB) {
+      return {
+        route: {
+          name: 'compare',
+          compareRunIds: [runA, runB],
+        },
+        params,
+      };
+    }
   }
 
   // Matches /runs/:runId
@@ -99,6 +137,17 @@ export function useAppRouter() {
     });
   }, []);
 
+  const navigateToCompare = useCallback((runA: string, runB: string) => {
+    const base = import.meta.env.BASE_URL || '/';
+    const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+    const targetUrl = `${cleanBase}/compare?a=${encodeURIComponent(runA)}&b=${encodeURIComponent(runB)}`;
+    window.history.pushState(null, '', targetUrl);
+    setRouteInfo({
+      route: { name: 'compare', compareRunIds: [runA, runB] },
+      params: {},
+    });
+  }, []);
+
   const updateQueryParams = useCallback(
     (newParams: Partial<QueryParams>, replace = true) => {
       setRouteInfo((prev) => {
@@ -111,10 +160,12 @@ export function useAppRouter() {
         if (newParams.t === undefined) delete mergedParams.t;
         if (newParams.log === undefined) delete mergedParams.log;
 
-        const currentPath =
-          prev.route.name === 'dashboard' && prev.route.runId
-            ? `/runs/${encodeURIComponent(prev.route.runId)}`
-            : '/';
+        let currentPath = '/';
+        if (prev.route.name === 'dashboard' && prev.route.runId) {
+          currentPath = `/runs/${encodeURIComponent(prev.route.runId)}`;
+        } else if (prev.route.name === 'compare' && prev.route.compareRunIds) {
+          currentPath = `/compare?a=${encodeURIComponent(prev.route.compareRunIds[0])}&b=${encodeURIComponent(prev.route.compareRunIds[1])}`;
+        }
 
         const targetUrl = buildUrl(currentPath, mergedParams);
         if (replace) {
@@ -132,16 +183,26 @@ export function useAppRouter() {
     [],
   );
 
-  const getShareableUrl = useCallback((runId: string, params?: QueryParams): string => {
-    const relativeUrl = buildUrl(`/runs/${encodeURIComponent(runId)}`, params);
-    return `${window.location.origin}${relativeUrl}`;
-  }, []);
+  const getShareableUrl = useCallback(
+    (runIdOrRunIds: string | [string, string], params?: QueryParams): string => {
+      if (Array.isArray(runIdOrRunIds)) {
+        const base = import.meta.env.BASE_URL || '/';
+        const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+        const relativeUrl = `${cleanBase}/compare?a=${encodeURIComponent(runIdOrRunIds[0])}&b=${encodeURIComponent(runIdOrRunIds[1])}`;
+        return `${window.location.origin}${relativeUrl}`;
+      }
+      const relativeUrl = buildUrl(`/runs/${encodeURIComponent(runIdOrRunIds)}`, params);
+      return `${window.location.origin}${relativeUrl}`;
+    },
+    [],
+  );
 
   return {
     route: routeInfo.route,
     queryParams: routeInfo.params,
     navigateToSearch,
     navigateToRun,
+    navigateToCompare,
     updateQueryParams,
     getShareableUrl,
   };

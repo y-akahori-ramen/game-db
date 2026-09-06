@@ -49,3 +49,63 @@ export interface UeLogEntry {
   level: LogLevel;
   message: string;
 }
+
+/** Second-bucketed diff metrics between two runs (Run A baseline vs Run B target). */
+export interface FpsDiffMetric {
+  second: number;
+  fpsA: number | null;
+  fpsB: number | null;
+  deltaFps: number | null;
+  frametimeA: number | null;
+  frametimeB: number | null;
+  deltaFrametime: number | null;
+  gameThreadA: number | null;
+  gameThreadB: number | null;
+  deltaGameThread: number | null;
+  renderThreadA: number | null;
+  renderThreadB: number | null;
+  deltaRenderThread: number | null;
+  gpuFrameA: number | null;
+  gpuFrameB: number | null;
+  deltaGpuFrame: number | null;
+}
+
+/** Memory peak comparison item per LLM tag / column. */
+export interface MemoryDiffItem {
+  category: string;
+  peakA: number;
+  peakB: number;
+  deltaPeak: number;
+  deltaPercent: number;
+}
+
+export type RegressionVerdict =
+  | 'REGRESSION'
+  | 'WARNING'
+  | 'IMPROVED'
+  | 'EQUIVALENT'
+  | 'INCONCLUSIVE';
+
+/** High-level KPIs and automated regression assessment comparing Run A and Run B. */
+export interface ComparisonSummary {
+  avgFpsA: number;
+  avgFpsB: number;
+  deltaFps: number;
+  deltaFpsPercent: number;
+  avgFrametimeA: number;
+  avgFrametimeB: number;
+  avgRenderThreadA: number;
+  avgRenderThreadB: number;
+  deltaRenderThread: number;
+  avgGameThreadA: number;
+  avgGameThreadB: number;
+  deltaGameThread: number;
+  avgGpuFrameA: number;
+  avgGpuFrameB: number;
+  deltaGpuFrame: number;
+  peakMemoryA?: number;
+  peakMemoryB?: number;
+  deltaPeakMemory?: number;
+  verdict: RegressionVerdict;
+  verdictReasons: string[];
+}

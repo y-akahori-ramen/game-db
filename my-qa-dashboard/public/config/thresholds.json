@@ -1,0 +1,23 @@
+{
+  "fps": {
+    "criticalDropPercent": 8.0,
+    "warningDropPercent": 3.0,
+    "improvedPercent": 3.0
+  },
+  "renderThread": {
+    "criticalDeltaMs": 3.0,
+    "warningDeltaMs": 1.5
+  },
+  "gameThread": {
+    "criticalDeltaMs": 3.0,
+    "warningDeltaMs": 1.5
+  },
+  "gpuFrame": {
+    "criticalDeltaMs": 4.0,
+    "warningDeltaMs": 2.0
+  },
+  "peakMemory": {
+    "criticalDeltaMb": 50.0,
+    "warningDeltaMb": 20.0
+  }
+}
