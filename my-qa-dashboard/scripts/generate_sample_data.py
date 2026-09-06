@@ -136,7 +136,34 @@ RUNS = [
         base_fps=29,
         drops=[(90, 6, 12), (200, 10, 15)],
     ),
+    RunSpec(
+        run_id="run-004",
+        game_version="v1.2.1",
+        platform="PS5",
+        test_name="Level1_Playthrough",
+        status="PASSED",
+        timestamp="2026-08-03T11:00:00Z",
+        fmt="csv",
+        base_fps=59,
+        drops=[(60, 4, 38)],
+        video=True,
+        screenshots=2,
+    ),
+    RunSpec(
+        run_id="run-005",
+        game_version="v1.2.1",
+        platform="Windows",
+        test_name="Boss_Battle_Stress",
+        status="PASSED",
+        timestamp="2026-08-02T16:20:00Z",
+        fmt="csv",
+        base_fps=60,
+        drops=[],
+        video=True,
+        screenshots=1,
+    ),
 ]
+
 
 
 def generate_fps(spec: RunSpec) -> pd.DataFrame:

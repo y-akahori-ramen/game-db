@@ -134,5 +134,88 @@
         "type": "log"
       }
     ]
+  },
+  {
+    "runId": "run-004",
+    "gameVersion": "v1.2.1",
+    "platform": "PS5",
+    "testName": "Level1_Playthrough",
+    "status": "PASSED",
+    "timestamp": "2026-08-03T11:00:00Z",
+    "fpsDataUrl": "sample_data/run-004/fps_metrics.csv",
+    "memoryDataUrl": "sample_data/run-004/memory_metrics.csv",
+    "logsDataUrl": "sample_data/samplelog.log",
+    "artifacts": [
+      {
+        "url": "sample_data/run-004/fps_metrics.csv",
+        "fileName": "fps_metrics.csv",
+        "type": "fps"
+      },
+      {
+        "url": "sample_data/run-004/memory_metrics.csv",
+        "fileName": "memory_metrics.csv",
+        "type": "memory"
+      },
+      {
+        "url": "sample_data/samplelog.log",
+        "fileName": "samplelog.log",
+        "type": "log"
+      },
+      {
+        "url": "sample_data/run-004/video.mp4",
+        "fileName": "video.mp4",
+        "type": "video"
+      },
+      {
+        "url": "sample_data/run-004/screenshot_001.png",
+        "fileName": "screenshot_001.png",
+        "type": "screenshot"
+      },
+      {
+        "url": "sample_data/run-004/screenshot_002.png",
+        "fileName": "screenshot_002.png",
+        "type": "screenshot"
+      }
+    ],
+    "videoUrl": "sample_data/run-004/video.mp4"
+  },
+  {
+    "runId": "run-005",
+    "gameVersion": "v1.2.1",
+    "platform": "Windows",
+    "testName": "Boss_Battle_Stress",
+    "status": "PASSED",
+    "timestamp": "2026-08-02T16:20:00Z",
+    "fpsDataUrl": "sample_data/run-005/fps_metrics.csv",
+    "memoryDataUrl": "sample_data/run-005/memory_metrics.csv",
+    "logsDataUrl": "sample_data/samplelog.log",
+    "artifacts": [
+      {
+        "url": "sample_data/run-005/fps_metrics.csv",
+        "fileName": "fps_metrics.csv",
+        "type": "fps"
+      },
+      {
+        "url": "sample_data/run-005/memory_metrics.csv",
+        "fileName": "memory_metrics.csv",
+        "type": "memory"
+      },
+      {
+        "url": "sample_data/samplelog.log",
+        "fileName": "samplelog.log",
+        "type": "log"
+      },
+      {
+        "url": "sample_data/run-005/video.mp4",
+        "fileName": "video.mp4",
+        "type": "video"
+      },
+      {
+        "url": "sample_data/run-005/screenshot_001.png",
+        "fileName": "screenshot_001.png",
+        "type": "screenshot"
+      }
+    ],
+    "videoUrl": "sample_data/run-005/video.mp4"
   }
 ]

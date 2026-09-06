@@ -9,6 +9,10 @@ export interface RouteState {
 export interface QueryParams {
   t?: number;
   log?: number;
+  testName?: string;
+  gameVersion?: string;
+  platform?: string;
+  status?: string;
 }
 
 function getNormalizedPathname(): string {
@@ -29,6 +33,10 @@ function parseRoute(): { route: RouteState; params: QueryParams } {
 
   const tParam = searchParams.get('t');
   const logParam = searchParams.get('log') || searchParams.get('line');
+  const testNameParam = searchParams.get('testName') || searchParams.get('test');
+  const gameVersionParam = searchParams.get('gameVersion') || searchParams.get('version');
+  const platformParam = searchParams.get('platform');
+  const statusParam = searchParams.get('status');
 
   const params: QueryParams = {};
   if (tParam !== null && !isNaN(Number(tParam))) {
@@ -37,6 +45,11 @@ function parseRoute(): { route: RouteState; params: QueryParams } {
   if (logParam !== null && !isNaN(Number(logParam))) {
     params.log = Number(logParam);
   }
+  if (testNameParam) params.testName = testNameParam;
+  if (gameVersionParam) params.gameVersion = gameVersionParam;
+  if (platformParam) params.platform = platformParam;
+  if (statusParam) params.status = statusParam;
+
 
   // Matches /compare/:runA/:runB
   const compareMatch = /^\/compare\/([^/?#]+)\/([^/?#]+)/.exec(path);
@@ -103,6 +116,10 @@ function buildUrl(path: string, params?: QueryParams): string {
   if (params?.log !== undefined && !isNaN(params.log)) {
     searchParams.set('log', String(Math.round(params.log)));
   }
+  if (params?.testName) searchParams.set('testName', params.testName);
+  if (params?.gameVersion) searchParams.set('gameVersion', params.gameVersion);
+  if (params?.platform) searchParams.set('platform', params.platform);
+  if (params?.status) searchParams.set('status', params.status);
 
   const query = searchParams.toString();
   return query ? `${fullPath}?${query}` : fullPath;
@@ -122,10 +139,10 @@ export function useAppRouter() {
     };
   }, []);
 
-  const navigateToSearch = useCallback(() => {
-    const targetUrl = buildUrl('/');
+  const navigateToSearch = useCallback((params?: QueryParams) => {
+    const targetUrl = buildUrl('/', params);
     window.history.pushState(null, '', targetUrl);
-    setRouteInfo({ route: { name: 'search' }, params: {} });
+    setRouteInfo({ route: { name: 'search' }, params: params || {} });
   }, []);
 
   const navigateToRun = useCallback((runId: string, params?: QueryParams) => {
@@ -156,9 +173,13 @@ export function useAppRouter() {
           ...newParams,
         };
 
-        // Remove undefined / NaN
+        // Remove undefined / NaN / empty strings
         if (newParams.t === undefined) delete mergedParams.t;
         if (newParams.log === undefined) delete mergedParams.log;
+        if (!mergedParams.testName) delete mergedParams.testName;
+        if (!mergedParams.gameVersion) delete mergedParams.gameVersion;
+        if (!mergedParams.platform) delete mergedParams.platform;
+        if (!mergedParams.status) delete mergedParams.status;
 
         let currentPath = '/';
         if (prev.route.name === 'dashboard' && prev.route.runId) {
@@ -182,6 +203,7 @@ export function useAppRouter() {
     },
     [],
   );
+
 
   const getShareableUrl = useCallback(
     (runIdOrRunIds: string | [string, string], params?: QueryParams): string => {

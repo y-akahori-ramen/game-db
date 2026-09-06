@@ -249,7 +249,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             {(route.name === 'dashboard' || route.name === 'compare') && (
               <button
-                onClick={navigateToSearch}
+                onClick={() => navigateToSearch()}
                 className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1.5 text-sm text-slate-200 hover:bg-slate-800 transition-colors"
               >
                 <ArrowLeft size={16} /> 検索に戻る
@@ -317,7 +317,17 @@ export default function App() {
       </header>
 
       {route.name === 'search' ? (
-        <SearchPage onOpenRun={handleOpenRun} onCompareRuns={navigateToCompare} />
+        <SearchPage
+          onOpenRun={handleOpenRun}
+          onCompareRuns={navigateToCompare}
+          initialFilters={{
+            testName: queryParams.testName,
+            gameVersion: queryParams.gameVersion,
+            platform: queryParams.platform,
+            status: queryParams.status,
+          }}
+          onFilterChange={(filters) => updateQueryParams(filters, true)}
+        />
       ) : route.name === 'compare' && route.compareRunIds ? (
         <ComparePage
           runAId={route.compareRunIds[0]}
