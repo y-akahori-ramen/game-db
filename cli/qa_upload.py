@@ -557,7 +557,23 @@ def parse_args() -> argparse.Namespace:
         "upload",
         help="Upload a QA run directory to s3://<bucket>/runs/<run_id>/",
     )
-    upload.add_argument("--bucket", required=True, help="Destination S3 bucket name.")
+    upload.add_argument(
+        "--bucket",
+        help="Destination S3 bucket name (required for S3 mode, ignored for --server-url).",
+    )
+    upload.add_argument(
+        "--server-url",
+        help="On-premises dashboard/backend URL (env: QA_SERVER_URL). Enables HTTP upload mode.",
+    )
+    upload.add_argument(
+        "--api-key",
+        help="Personal API key for on-premises upload (env: QA_API_KEY).",
+    )
+    upload.add_argument(
+        "--allow-large-files",
+        action="store_true",
+        help="Allow files larger than 30 GiB without error (automatically enabled for --server-url).",
+    )
     upload.add_argument(
         "--run-dir",
         required=True,
@@ -1098,6 +1114,80 @@ def upload_manifest(
     return manifest_key
 
 
+def upload_file_http(
+    server_url: str,
+    api_key: str | None,
+    run_id: str,
+    file_name: str,
+    file_path: Path,
+) -> None:
+    endpoint = server_url.rstrip("/") + f"/api/upload/runs/{run_id}/{file_name}"
+    file_size = file_path.stat().st_size
+    print(f"Uploading {file_name} ({human_size(file_size)}) -> {endpoint} ...")
+
+    headers = {
+        "Content-Length": str(file_size),
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+        headers["X-API-Key"] = api_key
+
+    with open(file_path, "rb") as f:
+        req = urllib.request.Request(endpoint, data=f, headers=headers, method="PUT")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                if resp.status not in (200, 201):
+                    raise RuntimeError(f"HTTP upload failed with status {resp.status}")
+        except urllib.error.HTTPError as err:
+            body = err.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"HTTP {err.code} uploading {file_name}: {body}") from err
+
+    print(f"Uploaded {file_name} successfully.")
+
+
+def upload_child_files_http(
+    server_url: str,
+    api_key: str | None,
+    run_id: str,
+    uploads: list[UploadFile],
+) -> None:
+    print(f"Uploading {len(uploads)} child files via HTTP to {server_url} ...")
+    for u in uploads:
+        upload_file_http(server_url, api_key, run_id, u.local_path.name, u.local_path)
+
+
+def upload_manifest_http(
+    server_url: str,
+    api_key: str | None,
+    run_id: str,
+    manifest: dict[str, Any],
+) -> None:
+    endpoint = server_url.rstrip("/") + f"/api/upload/runs/{run_id}/manifest.json"
+    manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
+    print(f"Uploading manifest ({human_size(len(manifest_bytes))}) -> {endpoint} ...")
+
+    headers = {
+        "Content-Type": "application/json",
+        "Content-Length": str(len(manifest_bytes)),
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+        headers["X-API-Key"] = api_key
+
+    req = urllib.request.Request(
+        endpoint, data=manifest_bytes, headers=headers, method="PUT"
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            if resp.status not in (200, 201):
+                raise RuntimeError(f"HTTP manifest upload failed with status {resp.status}")
+    except urllib.error.HTTPError as err:
+        body = err.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {err.code} uploading manifest: {body}") from err
+
+    print("Uploaded manifest.json successfully (indexed into DynamoDB).")
+
+
 def handle_upload(args: argparse.Namespace) -> int:
     try:
         args.executed_at = validate_executed_at(args.executed_at)
@@ -1113,14 +1203,33 @@ def handle_upload(args: argparse.Namespace) -> int:
         # Step 2: Discover upload files (including any newly generated web videos)
         uploads = discover_uploads(run_dir, args.run_id)
 
-        # Step 3: Validate file size limits (30GB CloudFront single file limit)
-        validate_file_sizes(uploads)
+        server_url = args.server_url or os.environ.get("QA_SERVER_URL")
+        api_key = args.api_key or os.environ.get("QA_API_KEY")
 
-        # Step 4: S3 uploads
-        s3_client = create_s3_client(args)
-        upload_child_files(s3_client, args.bucket, uploads)
-        manifest = build_manifest(args, uploads)
-        upload_manifest(s3_client, args.bucket, args.run_id, manifest)
+        if server_url:
+            # ------------------------------------------------------------------
+            # On-premises HTTP upload mode (30GB limit bypassed)
+            # ------------------------------------------------------------------
+            print(f"Targeting on-premises server: {server_url}")
+            upload_child_files_http(server_url, api_key, args.run_id, uploads)
+            manifest = build_manifest(args, uploads)
+            upload_manifest_http(server_url, api_key, args.run_id, manifest)
+        else:
+            # ------------------------------------------------------------------
+            # Traditional AWS S3 upload mode
+            # ------------------------------------------------------------------
+            if not args.bucket:
+                raise ValueError("--bucket is required when --server-url is not provided.")
+
+            # Step 3: Validate file size limits (30GB CloudFront limit) unless bypassed
+            if not args.allow_large_files:
+                validate_file_sizes(uploads)
+
+            # Step 4: S3 uploads
+            s3_client = create_s3_client(args)
+            upload_child_files(s3_client, args.bucket, uploads)
+            manifest = build_manifest(args, uploads)
+            upload_manifest(s3_client, args.bucket, args.run_id, manifest)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

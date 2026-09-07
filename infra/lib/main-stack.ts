@@ -1,231 +1,129 @@
-import * as path from 'node:path';
 import * as cdk from 'aws-cdk-lib';
-import * as apigateway from 'aws-cdk-lib/aws-apigateway';
-import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
-import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
-import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import { Construct } from 'constructs';
-import { BLOCKED_IPS } from './blocked-ips';
-import { SearchIndex } from './search-index';
-import { Storage } from './storage';
 
-export interface MainStackProps extends cdk.StackProps {
-  readonly edgeWebAclArn: string;
+export interface GameQaDashboardStackProps extends cdk.StackProps {
   /**
-   * Published Lambda@Edge OIDC authentication function version from EdgeStack (us-east-1).
-   * When provided, protects SPA routes, /data/*, and /api/* via viewer request authentication.
+   * DynamoDB table name for the run search index.
+   * Defaults to 'GameQaDashboard-SearchIndex'.
    */
-  readonly edgeAuthVersion?: lambda.IVersion;
+  readonly tableName?: string;
   /**
-   * Google OAuth 2.0 Client ID for the QA upload CLI.
-   * When provided, creates an IAM OIDC Provider for accounts.google.com and an IAM Role
-   * allowing the CLI to assume upload permissions via STS AssumeRoleWithWebIdentity.
+   * IAM User name for the on-premises Docker Compose backend.
+   * Defaults to 'GameQaDashboardOnpremUser'.
    */
-  readonly googleClientId?: string;
+  readonly onpremUserName?: string;
 }
 
-export class MainStack extends cdk.Stack {
-  public readonly storage: Storage;
-  public readonly searchIndex: SearchIndex;
-  public readonly searchFunction: lambda.Function;
-  public readonly restApi: apigateway.RestApi;
-  public readonly distribution: cloudfront.Distribution;
+/**
+ * Game QA Dashboard AWS Stack (On-Premises Hybrid Architecture).
+ *
+ * Manages only the AWS-side resources:
+ * 1. DynamoDB Table for the run search index with 3 GSIs.
+ * 2. Dedicated IAM User and minimal policy for the on-premises backend.
+ *
+ * All storage (S3) and web hosting (CloudFront, Lambda@Edge, API Gateway)
+ * have been migrated to the on-premises DMZ environment.
+ */
+export class GameQaDashboardStack extends cdk.Stack {
+  public readonly table: dynamodb.Table;
+  public readonly onpremUser: iam.User;
 
-  constructor(scope: Construct, id: string, props: MainStackProps) {
+  constructor(scope: Construct, id: string, props: GameQaDashboardStackProps = {}) {
     super(scope, id, props);
 
-    this.storage = new Storage(this, 'Storage');
+    const tableName = props.tableName ?? 'GameQaDashboard-SearchIndex';
+    const onpremUserName = props.onpremUserName ?? 'GameQaDashboardOnpremUser';
 
-    this.searchIndex = new SearchIndex(this, 'SearchIndex', {
-      dataBucket: this.storage.dataBucket,
-    });
-
-    const lambdaSourceRoot = path.join(__dirname, '..', 'lambda');
-
-    this.searchFunction = new lambda.Function(this, 'SearchFunction', {
-      code: lambda.Code.fromAsset(path.join(lambdaSourceRoot, 'search')),
-      handler: 'index.handler',
-      runtime: lambda.Runtime.PYTHON_3_13,
-      timeout: cdk.Duration.seconds(30),
-      environment: {
-        TABLE_NAME: this.searchIndex.table.tableName,
+    // 1. DynamoDB Table with GSIs for run search index
+    this.table = new dynamodb.Table(this, 'RunSearchIndexTable', {
+      tableName,
+      partitionKey: { name: 'runId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: true,
       },
     });
 
-    this.searchIndex.table.grantReadData(this.searchFunction);
-
-    this.restApi = new apigateway.RestApi(this, 'RestApi', {
-      restApiName: 'game-qa-dashboard-api',
-      description: 'REST API for the Game QA Dashboard search endpoint.',
-      deployOptions: {
-        stageName: 'prod',
-      },
-      defaultCorsPreflightOptions: {
-        allowOrigins: apigateway.Cors.ALL_ORIGINS,
-        allowMethods: apigateway.Cors.ALL_METHODS,
-        allowHeaders: [...apigateway.Cors.DEFAULT_HEADERS, 'Authorization'],
-      },
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'platform-index',
+      partitionKey: { name: 'platform', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'executedAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    const spaOriginAccessControl = new cloudfront.S3OriginAccessControl(this, 'SpaOriginAccessControl');
-    const dataOriginAccessControl = new cloudfront.S3OriginAccessControl(this, 'DataOriginAccessControl');
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'status-index',
+      partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'executedAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
 
-    const edgeLambdas: cloudfront.EdgeLambda[] | undefined = props.edgeAuthVersion
-      ? [
-        {
-          functionVersion: props.edgeAuthVersion,
-          eventType: cloudfront.LambdaEdgeEventType.VIEWER_REQUEST,
-        },
-      ]
-      : undefined;
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'all-index',
+      partitionKey: { name: 'gsiAllPk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'executedAt', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
 
-    this.distribution = new cloudfront.Distribution(this, 'Distribution', {
-      defaultRootObject: 'index.html',
-      defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(this.storage.spaBucket, {
-          originAccessControl: spaOriginAccessControl,
+    // 2. Dedicated IAM User for On-Premises Docker Compose backend
+    this.onpremUser = new iam.User(this, 'OnpremBackendUser', {
+      userName: onpremUserName,
+    });
+
+    // 3. Least-privilege IAM Policy for DynamoDB search index access
+    const dynamoDbPolicy = new iam.Policy(this, 'OnpremDynamoDbPolicy', {
+      policyName: 'GameQaDashboardOnpremDynamoDbAccess',
+      statements: [
+        new iam.PolicyStatement({
+          sid: 'DynamoDBReadWriteAccessForGameQaDashboard',
+          effect: iam.Effect.ALLOW,
+          actions: [
+            'dynamodb:GetItem',
+            'dynamodb:PutItem',
+            'dynamodb:UpdateItem',
+            'dynamodb:DeleteItem',
+            'dynamodb:Query',
+            'dynamodb:Scan',
+            'dynamodb:BatchGetItem',
+            'dynamodb:BatchWriteItem',
+            'dynamodb:DescribeTable',
+          ],
+          resources: [
+            this.table.tableArn,
+            `${this.table.tableArn}/index/*`,
+          ],
         }),
-        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        edgeLambdas,
-      },
-      additionalBehaviors: {
-        'data/*': {
-          origin: origins.S3BucketOrigin.withOriginAccessControl(this.storage.dataBucket, {
-            originAccessControl: dataOriginAccessControl,
-          }),
-          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
-          cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
-          edgeLambdas,
-        },
-        'api/*': {
-          origin: new origins.RestApiOrigin(this.restApi),
-          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
-          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
-          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
-          edgeLambdas,
-        },
-      },
-      errorResponses: [
-        {
-          httpStatus: 403,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-        },
-        {
-          httpStatus: 404,
-          responseHttpStatus: 200,
-          responsePagePath: '/index.html',
-        },
       ],
-      webAclId: props.edgeWebAclArn,
-      priceClass: cloudfront.PriceClass.PRICE_CLASS_200,
     });
 
-    // Syncs my-qa-dashboard/dist (must be built beforehand, see infra/README.md) to the SPA bucket
-    // and invalidates the CloudFront cache so `cdk deploy` picks up webapp changes on every run.
-    new s3deploy.BucketDeployment(this, 'SpaDeployment', {
-      sources: [s3deploy.Source.asset(path.join(__dirname, '..', '..', 'my-qa-dashboard', 'dist'))],
-      destinationBucket: this.storage.spaBucket,
-      distribution: this.distribution,
-      distributionPaths: ['/*'],
+    dynamoDbPolicy.attachToUser(this.onpremUser);
+
+    // 4. CloudFormation Outputs
+    new cdk.CfnOutput(this, 'TableName', {
+      value: this.table.tableName,
+      description: 'DynamoDB table name for run search index.',
     });
 
-    const apiResource = this.restApi.root.addResource('api');
-    const searchResource = apiResource.addResource('search');
-    searchResource.addMethod('POST', new apigateway.LambdaIntegration(this.searchFunction), {
-      authorizationType: apigateway.AuthorizationType.NONE,
+    new cdk.CfnOutput(this, 'TableArn', {
+      value: this.table.tableArn,
+      description: 'DynamoDB table ARN.',
     });
 
-    const regionalBlockedIps = new wafv2.CfnIPSet(this, 'RegionalBlockedIpsIpSet', {
-      name: 'GameQaDashboardRegionalBlockedIps',
-      scope: 'REGIONAL',
-      ipAddressVersion: 'IPV4',
-      addresses: BLOCKED_IPS,
-      description: 'Blocked IPv4 addresses for the Game QA Dashboard regional API WAF.',
+    new cdk.CfnOutput(this, 'OnpremUserName', {
+      value: this.onpremUser.userName,
+      description: 'IAM User name for on-premises backend. Generate an Access Key for onprem/.env.',
     });
 
-    const regionalWebAcl = new wafv2.CfnWebACL(this, 'RegionalApiWebAcl', {
-      name: 'GameQaDashboardRegionalApiWebAcl',
-      scope: 'REGIONAL',
-      defaultAction: {
-        allow: {},
-      },
-      rules: [
-        {
-          name: 'BlockConfiguredIps',
-          priority: 0,
-          statement: {
-            ipSetReferenceStatement: {
-              arn: regionalBlockedIps.attrArn,
-            },
-          },
-          action: {
-            block: {},
-          },
-          visibilityConfig: {
-            cloudWatchMetricsEnabled: true,
-            metricName: 'GameQaDashboardRegionalBlockedIpsRule',
-            sampledRequestsEnabled: true,
-          },
-        },
-      ],
-      visibilityConfig: {
-        cloudWatchMetricsEnabled: true,
-        metricName: 'GameQaDashboardRegionalApiWebAcl',
-        sampledRequestsEnabled: true,
-      },
+    new cdk.CfnOutput(this, 'OnpremUserArn', {
+      value: this.onpremUser.userArn,
+      description: 'IAM User ARN for on-premises backend.',
     });
-
-    new wafv2.CfnWebACLAssociation(this, 'RegionalApiWebAclAssociation', {
-      resourceArn: this.restApi.deploymentStage.stageArn,
-      webAclArn: regionalWebAcl.attrArn,
-    });
-
-    // CloudFront fronts the SPA bucket, data objects (/data/*), and the /api/* REST API.
-    // All routes are protected at the edge by Lambda@Edge Google OIDC authentication.
-    // In addition, the REST API is protected by a REGIONAL WAF mirroring the shared BLOCKED_IPS.
-
-    new cdk.CfnOutput(this, 'DistributionDomainName', {
-      value: this.distribution.distributionDomainName,
-    });
-
-    new cdk.CfnOutput(this, 'AppUrl', {
-      value: `https://${this.distribution.distributionDomainName}`,
-    });
-
-    const googleClientId = props.googleClientId ?? process.env.GOOGLE_CLIENT_ID;
-    if (googleClientId) {
-      const googleProvider = new iam.OpenIdConnectProvider(this, 'GoogleOidcProvider', {
-        url: 'https://accounts.google.com',
-        clientIds: [googleClientId],
-      });
-
-      const cliUploadRole = new iam.Role(this, 'CliUploadRole', {
-        roleName: 'GameQaDashboardCliUploadRole',
-        assumedBy: new iam.FederatedPrincipal(
-          googleProvider.openIdConnectProviderArn,
-          {
-            StringEquals: {
-              'accounts.google.com:aud': googleClientId,
-            },
-          },
-          'sts:AssumeRoleWithWebIdentity',
-        ),
-        description:
-          'IAM Role assumed by the QA upload CLI via Google Account OIDC (STS AssumeRoleWithWebIdentity).',
-      });
-
-      this.storage.dataBucket.grantWrite(cliUploadRole, 'runs/*');
-
-      new cdk.CfnOutput(this, 'CliUploadRoleArn', {
-        value: cliUploadRole.roleArn,
-        description: 'IAM Role ARN for QA upload CLI (passed via --role-arn).',
-      });
-    }
   }
 }
+
+// Export as MainStack for backward compatibility with existing scripts/tests
+export { GameQaDashboardStack as MainStack };
+export type { GameQaDashboardStackProps as MainStackProps };

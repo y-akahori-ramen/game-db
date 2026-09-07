@@ -1,31 +1,17 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
-import { EdgeStack } from '../lib/edge-stack';
-import { MainStack } from '../lib/main-stack';
+import { GameQaDashboardStack } from '../lib/main-stack';
 
 const app = new cdk.App();
 const account = process.env.CDK_DEFAULT_ACCOUNT;
+const region = process.env.CDK_DEFAULT_REGION || 'ap-northeast-1';
 
-const edgeStack = new EdgeStack(app, 'GameQaDashboardEdgeStack', {
+// Single-region stack (Tokyo) managing only the AWS DynamoDB search index
+// and the least-privilege IAM User for the on-premises Docker Compose backend.
+new GameQaDashboardStack(app, 'GameQaDashboardStack', {
   env: {
     account,
-    region: 'us-east-1',
+    region,
   },
-  crossRegionReferences: true,
-  googleClientId: process.env.GOOGLE_CLIENT_ID,
-  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  googleAllowedDomain: process.env.GOOGLE_ALLOWED_DOMAIN,
-  googleAllowedEmails: process.env.GOOGLE_ALLOWED_EMAILS,
+  tableName: process.env.TABLE_NAME || 'GameQaDashboard-SearchIndex',
 });
-
-new MainStack(app, 'GameQaDashboardMainStack', {
-  env: {
-    account,
-    region: 'ap-northeast-1',
-  },
-  crossRegionReferences: true,
-  edgeWebAclArn: edgeStack.webAclArn,
-  edgeAuthVersion: edgeStack.edgeAuthVersion,
-  googleClientId: process.env.GOOGLE_CLIENT_ID,
-});
-

@@ -24,21 +24,27 @@
 ```text
 game-db/
 ├── my-qa-dashboard/     # React 19 + TypeScript + Vite 8 + DuckDB-WASM ダッシュボード
-│   ├── src/             # フロントエンドソースコード (ECharts, LogTable, Auth, Search)
+│   ├── src/             # フロントエンドソースコード (ECharts, LogTable, Auth, Search, KeyModal)
 │   ├── public/          # モックデータ (runs.json) およびサンプル実行データ (run-XXX/)
 │   └── scripts/         # サンプルデータ生成スクリプト (generate_sample_data.py)
+├── onprem/              # 社内オンプレミス運用環境 (Docker Compose)
+│   ├── docker-compose.yml # Nginx + OAuth2-Proxy + Backend (FastAPI) 3コンテナ構成
+│   ├── nginx/           # 内部 Nginx 設定 (SPA配信, /data/* 高速直配信, OAuth2-Proxy連携)
+│   ├── backend/         # バックエンド API (検索, 大容量ストリーミングアップロード, APIキー管理)
+│   └── .env.example     # 環境変数サンプル (Google OAuth, AWS DynamoDB, DMZ設定)
 ├── cli/                 # QA テスト結果アップロード CLI (Python)
-│   ├── qa_upload.py     # アップロードスクリプト (Google OAuth 2.0 PKCE, STS, S3 マルチパート)
+│   ├── qa_upload.py     # アップロードスクリプト (HTTPオンプレミス/S3マルチパート対応, 30GB制限撤廃)
 │   ├── test_qa_upload.py# CLI 単体テスト
 │   └── README.md        # CLI 詳細ドキュメント
-├── infra/               # AWS CDK (TypeScript) インフラコード
-│   ├── bin/             # CDK エントリポイント (EdgeStack [us-east-1] + MainStack [ap-northeast-1])
-│   ├── lib/             # CDK スタック・コンストラクト定義 (WAF, S3, DynamoDB, API GW, OIDC)
-│   └── lambda/          # Lambda 関数 (manifest-indexer, search, edge-auth)
+├── infra/               # AWS CDK (TypeScript) インフラコード & ポリシー
+│   ├── onprem-dynamodb-policy.json # オンプレミス連携用 DynamoDB 最小権限 IAM ポリシー
+│   ├── lib/             # CDK スタック定義 (DynamoDB 検索インデックスなど)
+│   └── lambda/          # Lambda 関数
 ├── scripts/             # ローカル開発・検証支援スクリプト
 │   ├── test_local_pipeline.py # Stage 2 パイプライン検証テスト (moto / LocalStack)
-│   └── init-localstack.sh     # LocalStack 初期化スクリプト (S3バケット・DynamoDBテーブル作成)
+│   └── init-localstack.sh     # LocalStack 初期化スクリプト
 ├── docs/                # 詳細設計ドキュメント
+│   ├── dmz-reverse-proxy-guide.md # 社内 DMZ 側リバースプロキシ (HTTPS終端) 設定ガイド
 │   └── aws-architecture.md   # AWS クラウドデプロイアーキテクチャ設計書
 ├── docker-compose.local.yml   # LocalStack 開発用 Compose 定義
 └── README.md            # 本ドキュメント
@@ -46,14 +52,17 @@ game-db/
 
 ---
 
-## アーキテクチャ概要
+## アーキテクチャ概要（オンプレミス + AWS ハイブリッド）
 
-- **データエンジン**: **DuckDB-WASM** がブラウザ内で直接動作。S3/CloudFront 上の CSV や JSON、UE ログを仮想ファイルシステムに読み込み、SQL でミリ秒単位のクエリを実行。
-- **Web 認証**: **CloudFront + Lambda@Edge（OpenID Connect）**。Viewer Request で Google アカウント認証を検証。未認証時は Google ログイン画面へ 302 リダイレクトし、セッション Cookie で SPA、データ、API を一元保護。
-- **CLI 認証**: **Google OAuth 2.0 PKCE + AWS STS `AssumeRoleWithWebIdentity`**。初回のブラウザ認証後は、保存されたリフレッシュトークンで自動サイレント更新。IAM アクセスキーの端末配布は不要。
-- **データ登録 & 検索**: CLI が子ファイル（FPS/メモリ/ログ/動画）→ `manifest.json` の順に PUT。S3 の `ObjectCreated` イベントが Lambda を起動し、DynamoDB 検索インデックスへ自動反映。
+社内向けサービス特化、CloudFront の 30GB 単一ファイルサイズ制限の撤廃、およびクラウド転送・ストレージコスト削減のため、**データ保存と Web サービスホスティングを社内 DMZ / オンプレミス環境へ移行**し、**検索インデックス（AWS DynamoDB）および Google アカウント認証（Google OIDC）とハイブリッド連携**する構成をとっています。
 
-詳細な構成図と仕様は [`docs/aws-architecture.md`](docs/aws-architecture.md) を参照してください。
+- **データエンジン**: **DuckDB-WASM** がブラウザ内で直接動作。Nginx から配信されるローカルディスク/社内NAS上の大容量 CSV/JSON/ログ/動画を仮想ファイルシステムに読み込み、ミリ秒単位で集計・可視化。
+- **Web 認証 & ホスティング**: **社内 DMZ リバースプロキシ（HTTPS 終端）+ OAuth2-Proxy + Nginx**。Google アカウントによる組織ドメイン制限とセッション Cookie で SPA・データ・API を一元保護。
+- **大容量データストレージ (30GB制限撤廃)**: サーバー上のローカルストレージまたは社内 NAS 領域に直接保存。Nginx の `sendfile` / Range リクエスト機能により、数十GB超のゲームプレイ動画もゼロコピーで超高速シーク再生が可能。
+- **検索インデックス**: **AWS DynamoDB**（`GameQaDashboard-SearchIndex`）をそのまま継続利用。オンプレミスバックエンドが最小権限 IAM ポリシーで連携。
+- **CLI アップロード**: Web 画面で発行した **個人用 API キー** による非対話アップロード。バックエンドのストリーミング API への PUT により、巨大ファイルもメモリ負荷なく保存され、`manifest.json` アップロード時に DynamoDB へ自動インデックス。
+
+詳細な DMZ リバースプロキシ連携仕様は [`docs/dmz-reverse-proxy-guide.md`](docs/dmz-reverse-proxy-guide.md) を参照してください。
 
 ---
 
@@ -212,6 +221,37 @@ uv run cli/qa_upload.py upload \
   --google-client-id "$GOOGLE_CLIENT_ID"
 ```
 
+### オンプレミス本番・検証運用 (`onprem/`)
+
+社内 DMZ リバースプロキシ配下で稼働する Docker Compose 環境の起動手順です。
+
+```sh
+# 1. SPA を本番ビルド (Nginx で静的ホスティング)
+npm --prefix my-qa-dashboard run build
+
+# 2. 環境変数を設定 (初回のみ)
+cp onprem/.env.example onprem/.env
+# onprem/.env を編集して Google OAuth / AWS DynamoDB の設定を入力
+
+# 3. Docker Compose 起動 (Nginx, OAuth2-Proxy, Backend)
+docker compose -f onprem/docker-compose.yml up -d
+
+# 4. CLI からのオンプレミス直接アップロード (Web画面で発行した API キーを使用)
+export QA_SERVER_URL="http://localhost:8080" # または DMZ 経由の https://qa-dashboard...
+export QA_API_KEY="gqa_live_xxxxxxxxxxxxxxxxxxxxxxxx"
+
+uv run cli/qa_upload.py upload \
+  --server-url "$QA_SERVER_URL" \
+  --api-key "$QA_API_KEY" \
+  --run-dir ./my-qa-dashboard/public/sample_data/run-001 \
+  --run-id run-onprem-001 \
+  --game-version v1.0.0 \
+  --platform PS5 \
+  --test-name Onprem_Verification \
+  --result PASSED \
+  --avg-fps 60.0
+```
+
 ---
 
 ## クイックスタート・コマンド集
@@ -232,7 +272,7 @@ uv run cli/qa_upload.py --help          # コマンド一覧・ヘルプ
 uv run cli/qa_upload.py login --help    # ログインオプション
 uv run cli/qa_upload.py whoami          # 現在の認証アカウントと有効期限
 uv run cli/qa_upload.py logout          # トークンキャッシュ削除
-uv run --with boto3 python -m unittest cli/test_qa_upload.py # CLI 単体テスト
+python3 cli/test_qa_upload.py           # CLI 単体テスト (25テスト)
 ```
 
 ### インフラ & パイプライン検証

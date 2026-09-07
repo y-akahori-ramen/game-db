@@ -18,6 +18,7 @@ import {
   Share2,
   TrendingUp,
   XCircle,
+  Key,
 } from 'lucide-react';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useDuckDB, FPS_CSV_FILE, MEMORY_CSV_FILE } from './hooks/useDuckDB';
@@ -29,6 +30,7 @@ import ComparePage from './components/ComparePage';
 import TrendsPage from './components/TrendsPage';
 import ArtifactsPanel from './components/ArtifactsPanel';
 import MediaViewer from './components/MediaViewer';
+import AccessKeyModal from './components/AccessKeyModal';
 import { useAppRouter } from './router';
 import { parseUeLogText } from './utils/ueLogParser';
 import { searchService } from './services';
@@ -67,6 +69,7 @@ export default function App() {
   const [loadingData, setLoadingData] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
 
   const fpsFileInputRef = useRef<HTMLInputElement>(null);
   const [fpsFileName, setFpsFileName] = useState<string | null>(null);
@@ -374,11 +377,22 @@ export default function App() {
               )}
             </div>
           )}
-          {status === 'loading' && (
-            <span className="inline-flex items-center gap-1.5 text-sm text-slate-500">
-              <Loader2 size={14} className="animate-spin" /> Initializing DuckDB...
-            </span>
-          )}
+
+          <div className="flex items-center gap-3">
+            {status === 'loading' && (
+              <span className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+                <Loader2 size={14} className="animate-spin" /> Initializing DuckDB...
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsKeyModalOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/80 px-2.5 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 hover:text-cyan-400 transition-colors cursor-pointer"
+              title="CLIアップロード用APIキー管理"
+            >
+              <Key size={13} /> CLI キー
+            </button>
+          </div>
         </div>
         {status === 'error' && (
           <p className="mt-2 text-sm text-red-400">DuckDB init error: {error}</p>
@@ -651,6 +665,9 @@ export default function App() {
           </section>
         </main>
       )}
+
+      {/* CLI API Key Management Modal */}
+      <AccessKeyModal isOpen={isKeyModalOpen} onClose={() => setIsKeyModalOpen(false)} />
     </div>
   );
 }

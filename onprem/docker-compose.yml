@@ -1,0 +1,69 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: game-qa-backend
+    restart: unless-stopped
+    environment:
+      - TABLE_NAME=${TABLE_NAME:-GameQaDashboard-SearchIndex}
+      - AWS_DEFAULT_REGION=${AWS_REGION:-ap-northeast-1}
+      - AWS_REGION=${AWS_REGION:-ap-northeast-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - STORAGE_PATH=/data
+      - ALLOW_ANONYMOUS_UPLOAD=${ALLOW_ANONYMOUS_UPLOAD:-false}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+    volumes:
+      - qa_data:/data
+    networks:
+      - game_qa_net
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+    container_name: game-qa-oauth2-proxy
+    restart: unless-stopped
+    environment:
+      - OAUTH2_PROXY_PROVIDER=google
+      - OAUTH2_PROXY_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - OAUTH2_PROXY_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - OAUTH2_PROXY_COOKIE_SECRET=${OAUTH2_PROXY_COOKIE_SECRET}
+      - OAUTH2_PROXY_COOKIE_SECURE=true
+      - OAUTH2_PROXY_EMAIL_DOMAINS=${GOOGLE_ALLOWED_DOMAINS:-*}
+      - OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE=${OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE:-}
+      - OAUTH2_PROXY_SET_XAUTHREQUEST=true
+      - OAUTH2_PROXY_PASS_ACCESS_TOKEN=false
+      - OAUTH2_PROXY_REVERSE_PROXY=true
+      - OAUTH2_PROXY_UPSTREAMS=http://backend:8000
+      - OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180
+      - OAUTH2_PROXY_REDIRECT_URL=${APP_URL:-https://qa-dashboard.internal.example.com}/oauth2/callback
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+    networks:
+      - game_qa_net
+
+  nginx:
+    image: nginx:alpine
+    container_name: game-qa-nginx
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8080}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../my-qa-dashboard/dist:/usr/share/nginx/html:ro
+      - qa_data:/data:ro
+    depends_on:
+      - backend
+      - oauth2-proxy
+    networks:
+      - game_qa_net
+
+volumes:
+  # Mount to local disk or host NAS directory by overriding in docker-compose.override.yml
+  qa_data:
+    driver: local
+
+networks:
+  game_qa_net:
+    driver: bridge
