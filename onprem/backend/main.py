@@ -103,6 +103,11 @@ app.add_middleware(
 )
 
 
+import re
+
+SAFE_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_.\-]+$")
+MAX_NAME_LENGTH = 128
+
 # ==============================================================================
 # Models
 # ==============================================================================
@@ -112,6 +117,8 @@ class SearchFilter(BaseModel):
     platform: Optional[str] = None
     testName: Optional[str] = None
     status: Optional[str] = None
+    limit: Optional[int] = Field(default=None, ge=1, le=5000)
+    offset: Optional[int] = Field(default=None, ge=0)
 
 
 class CreateKeyRequest(BaseModel):
@@ -267,13 +274,29 @@ async def upload_file(
     """
     _authenticate_upload_request(request)
 
-    # Sanitize inputs
+    # Sanitize and validate inputs
     clean_run_id = posixpath.basename(run_id)
     clean_file_name = posixpath.basename(file_name)
-    if not clean_run_id or clean_run_id in (".", ".."):
-        raise HTTPException(status_code=400, detail="Invalid run_id")
-    if not clean_file_name or clean_file_name in (".", ".."):
-        raise HTTPException(status_code=400, detail="Invalid file_name")
+    if (
+        not clean_run_id
+        or clean_run_id in (".", "..")
+        or len(clean_run_id) > MAX_NAME_LENGTH
+        or not SAFE_NAME_PATTERN.match(clean_run_id)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid run_id (must match {SAFE_NAME_PATTERN.pattern}, max {MAX_NAME_LENGTH} chars)",
+        )
+    if (
+        not clean_file_name
+        or clean_file_name in (".", "..")
+        or len(clean_file_name) > MAX_NAME_LENGTH
+        or not SAFE_NAME_PATTERN.match(clean_file_name)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file_name (must match {SAFE_NAME_PATTERN.pattern}, max {MAX_NAME_LENGTH} chars)",
+        )
 
     # Check disk quota before accepting upload (HTTP 507)
     _check_disk_quota(RUNS_DIR)
@@ -314,13 +337,10 @@ async def upload_file(
             _index_manifest(target_file, clean_run_id)
         except Exception as exc:
             LOGGER.exception("Failed to index manifest %s: %s", target_file, exc)
-            return {
-                "status": "warning",
-                "message": f"File uploaded but SQLite index failed: {exc}",
-                "runId": clean_run_id,
-                "fileName": clean_file_name,
-                "bytes": total_bytes,
-            }
+            raise HTTPException(
+                status_code=500,
+                detail=f"Manifest uploaded but SQLite indexing failed: {exc}",
+            )
 
     return {
         "status": "ok",
@@ -418,16 +438,18 @@ def _index_manifest(manifest_path: Path, run_id: str) -> None:
 @app.post("/api/search")
 def search_runs_post(
     filter_payload: SearchFilter,
-    limit: int = Query(default=200, ge=1, le=1000),
+    limit: int = Query(default=200, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
 ) -> list[dict[str, Any]]:
+    effective_limit = filter_payload.limit if filter_payload.limit is not None else limit
+    effective_offset = filter_payload.offset if filter_payload.offset is not None else offset
     return db.search_runs(
         game_version=filter_payload.gameVersion,
         platform=filter_payload.platform,
         test_name=filter_payload.testName,
         status=filter_payload.status,
-        limit=limit,
-        offset=offset,
+        limit=effective_limit,
+        offset=effective_offset,
     )
 
 
@@ -437,7 +459,7 @@ def search_runs_get(
     platform: Optional[str] = Query(None),
     testName: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
-    limit: int = Query(default=200, ge=1, le=1000),
+    limit: int = Query(default=200, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
 ) -> list[dict[str, Any]]:
     return db.search_runs(
@@ -454,8 +476,16 @@ def search_runs_get(
 def get_run(run_id: str) -> dict[str, Any]:
     """Retrieve a single test run summary by runId."""
     clean_run_id = posixpath.basename(run_id)
-    if not clean_run_id or clean_run_id in (".", ".."):
-        raise HTTPException(status_code=400, detail="Invalid run_id")
+    if (
+        not clean_run_id
+        or clean_run_id in (".", "..")
+        or len(clean_run_id) > MAX_NAME_LENGTH
+        or not SAFE_NAME_PATTERN.match(clean_run_id)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid run_id (must match {SAFE_NAME_PATTERN.pattern}, max {MAX_NAME_LENGTH} chars)",
+        )
     run = db.get_run_by_id(clean_run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")

@@ -3,6 +3,8 @@ export interface SearchFilter {
     platform?: string;
     testName?: string;
     status?: string;
+    limit?: number;
+    offset?: number;
 }
 
 /** Kind of artifact produced during a test run, used for icons/grouping in the viewer. */

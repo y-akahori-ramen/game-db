@@ -329,10 +329,14 @@ export default function LogTable({
 
   // Copy line text to clipboard
   const handleCopyLine = useCallback(
-    (entry: DisplayLogEntry, e: React.MouseEvent) => {
+    async (entry: DisplayLogEntry, e: React.MouseEvent) => {
       e.stopPropagation();
       const formatted = `[${entry.timestamp}][${entry.frame ?? '-'}] ${entry.category}: ${entry.badgeLabel}: ${entry.message}`;
-      navigator.clipboard.writeText(formatted);
+      try {
+        await navigator.clipboard.writeText(formatted);
+      } catch {
+        prompt('コピーしてください:', formatted);
+      }
       setCopiedLine(entry.lineNumber);
       setToastMessage(`行 #${entry.lineNumber} のテキストをコピーしました`);
       setTimeout(() => {
@@ -347,7 +351,7 @@ export default function LogTable({
 
   // Copy shareable URL link to clipboard
   const handleCopyLink = useCallback(
-    (lineNumber: number, timestamp?: number | null, e?: React.MouseEvent) => {
+    async (lineNumber: number, timestamp?: number | null, e?: React.MouseEvent) => {
       e?.stopPropagation();
       onSelectLine?.(lineNumber, timestamp);
       const url = new URL(window.location.href);
@@ -355,7 +359,12 @@ export default function LogTable({
       if (timestamp !== undefined && timestamp !== null) {
         url.searchParams.set('t', String(Number(timestamp.toFixed(2))));
       }
-      navigator.clipboard.writeText(url.toString());
+      const urlStr = url.toString();
+      try {
+        await navigator.clipboard.writeText(urlStr);
+      } catch {
+        prompt('共有URLをコピーしてください:', urlStr);
+      }
       setCopiedLinkLine(lineNumber);
       setToastMessage(`行 #${lineNumber} へのリンクをコピーしました`);
       setTimeout(() => {
@@ -742,6 +751,13 @@ export default function LogTable({
           {querying ? (
             <span className="inline-flex items-center gap-1 text-cyan-400">
               <Loader2 size={12} className="animate-spin" /> Querying...
+            </span>
+          ) : rows.length >= 2000 ? (
+            <span
+              className="text-amber-400 font-medium cursor-help"
+              title="検索結果が上限の2,000行に達しました。カテゴリやキーワード、レベルで絞り込んでください。"
+            >
+              2,000+ 行 (上限表示)
             </span>
           ) : (
             `${rows.length.toLocaleString()} 行`

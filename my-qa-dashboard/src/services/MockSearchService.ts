@@ -31,7 +31,15 @@ export class MockSearchService implements SearchService {
 
     async searchRuns(filter: SearchFilter): Promise<TestRunSummary[]> {
         const runs = await this.fetchRuns();
-        return runs.filter((run) => matches(run, filter));
+        const matched = runs.filter((run) => matches(run, filter));
+        const offset = filter.offset ?? 0;
+        if (filter.limit !== undefined) {
+            return matched.slice(offset, offset + filter.limit);
+        }
+        if (offset > 0) {
+            return matched.slice(offset);
+        }
+        return matched;
     }
 
     async getRun(runId: string): Promise<TestRunSummary | null> {

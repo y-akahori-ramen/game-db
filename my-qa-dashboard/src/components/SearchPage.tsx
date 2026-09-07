@@ -7,6 +7,10 @@ import {
   ArrowUp,
   ArrowUpDown,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Filter,
   FolderOpen,
   Loader2,
@@ -61,15 +65,22 @@ export default function SearchPage({
   const [sortField, setSortField] = useState<SortField>('timestamp');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(50);
 
   const runSearchWith = useCallback(
     async (filters: SearchFilter) => {
       setSearching(true);
       setSearchError(null);
       try {
-        const results = await searchService.searchRuns(filters);
+        const results = await searchService.searchRuns({
+          limit: 500,
+          ...filters,
+        });
         setRuns(results);
         setSearched(true);
+        setCurrentPage(1);
         onFilterChange?.(filters);
       } catch (e) {
         setSearchError(e instanceof Error ? e.message : String(e));
@@ -89,11 +100,41 @@ export default function SearchPage({
     });
   }, [runSearchWith, testName, gameVersion, platform, status]);
 
-  // Initial load using initialFilters or default
+  const handleQuickStatus = (newStatus: string) => {
+    setStatus(newStatus);
+    void runSearchWith({
+      testName: testName || undefined,
+      gameVersion: gameVersion || undefined,
+      platform: platform || undefined,
+      status: newStatus || undefined,
+    });
+  };
+
+  // Sync form inputs and execute search when initialFilters change (including browser back/forward)
   useEffect(() => {
-    void runSearch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const nextTestName = initialFilters?.testName || '';
+    const nextGameVersion = initialFilters?.gameVersion || '';
+    const nextPlatform = initialFilters?.platform || '';
+    const nextStatus = initialFilters?.status || '';
+
+    setTestName(nextTestName);
+    setGameVersion(nextGameVersion);
+    setPlatform(nextPlatform);
+    setStatus(nextStatus);
+
+    void runSearchWith({
+      testName: nextTestName || undefined,
+      gameVersion: nextGameVersion || undefined,
+      platform: nextPlatform || undefined,
+      status: nextStatus || undefined,
+    });
+  }, [
+    initialFilters?.testName,
+    initialFilters?.gameVersion,
+    initialFilters?.platform,
+    initialFilters?.status,
+    runSearchWith,
+  ]);
 
 
   const handleSubmit = (e: FormEvent) => {
@@ -141,6 +182,35 @@ export default function SearchPage({
       return sortOrder === 'asc' ? cmp : -cmp;
     });
   }, [runs, sortField, sortOrder]);
+
+  const totalItems = sortedRuns.length;
+  const totalPages = pageSize > 0 ? Math.max(1, Math.ceil(totalItems / pageSize)) : 1;
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = pageSize > 0 ? (safeCurrentPage - 1) * pageSize : 0;
+  const endIndex = pageSize > 0 ? Math.min(startIndex + pageSize, totalItems) : totalItems;
+
+  const paginatedRuns = useMemo(() => {
+    return pageSize > 0 ? sortedRuns.slice(startIndex, endIndex) : sortedRuns;
+  }, [sortedRuns, startIndex, endIndex, pageSize]);
+
+  const isAllPageSelected = useMemo(() => {
+    if (paginatedRuns.length === 0) return false;
+    return paginatedRuns.every((r) => selectedRunIds.includes(r.runId));
+  }, [paginatedRuns, selectedRunIds]);
+
+  const isSomePageSelected = useMemo(() => {
+    return !isAllPageSelected && paginatedRuns.some((r) => selectedRunIds.includes(r.runId));
+  }, [paginatedRuns, selectedRunIds, isAllPageSelected]);
+
+  const toggleSelectAllPage = () => {
+    if (isAllPageSelected) {
+      const pageRunIds = new Set(paginatedRuns.map((r) => r.runId));
+      setSelectedRunIds((prev) => prev.filter((id) => !pageRunIds.has(id)));
+    } else {
+      const newIds = new Set([...selectedRunIds, ...paginatedRuns.map((r) => r.runId)]);
+      setSelectedRunIds(Array.from(newIds));
+    }
+  };
 
   const toggleSelectRun = (runId: string) => {
     setSelectedRunIds((prev) =>
@@ -250,7 +320,7 @@ export default function SearchPage({
             <button
               type="submit"
               disabled={searching}
-              className="inline-flex items-center gap-2 rounded-md bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 rounded-md bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
             >
               {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
               検索
@@ -261,7 +331,7 @@ export default function SearchPage({
                 type="button"
                 onClick={handleReset}
                 disabled={searching}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-700 transition-colors cursor-pointer"
                 title="フィルタをクリア"
               >
                 <RotateCcw size={14} /> クリア
@@ -270,6 +340,54 @@ export default function SearchPage({
           </div>
         </div>
 
+        {/* Quick status filter chips */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/60 text-xs">
+          <span className="text-slate-500">クイック絞り込み:</span>
+          <button
+            type="button"
+            onClick={() => handleQuickStatus('')}
+            className={`rounded px-2 py-0.5 transition-colors cursor-pointer ${
+              status === ''
+                ? 'bg-slate-700 text-white font-medium'
+                : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-700/60'
+            }`}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickStatus('PASSED')}
+            className={`inline-flex items-center gap-1 rounded px-2 py-0.5 transition-colors cursor-pointer ${
+              status === 'PASSED'
+                ? 'bg-green-600/30 text-green-300 border border-green-500/50 font-medium'
+                : 'bg-slate-800/80 text-slate-400 hover:text-green-400 hover:bg-slate-700/60'
+            }`}
+          >
+            <CheckCircle2 size={11} className="text-green-400" /> PASSED のみ
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickStatus('FAILED')}
+            className={`inline-flex items-center gap-1 rounded px-2 py-0.5 transition-colors cursor-pointer ${
+              status === 'FAILED'
+                ? 'bg-red-600/30 text-red-300 border border-red-500/50 font-medium'
+                : 'bg-slate-800/80 text-slate-400 hover:text-red-400 hover:bg-slate-700/60'
+            }`}
+          >
+            <XCircle size={11} className="text-red-400" /> FAILED のみ
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickStatus('ABORTED')}
+            className={`inline-flex items-center gap-1 rounded px-2 py-0.5 transition-colors cursor-pointer ${
+              status === 'ABORTED'
+                ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50 font-medium'
+                : 'bg-slate-800/80 text-slate-400 hover:text-amber-400 hover:bg-slate-700/60'
+            }`}
+          >
+            <AlertTriangle size={11} className="text-amber-400" /> ABORTED のみ
+          </button>
+        </div>
 
         {searchError && <p className="mt-3 text-sm text-red-400">検索エラー: {searchError}</p>}
       </form>
@@ -314,17 +432,101 @@ export default function SearchPage({
       )}
 
       {/* Results summary & table */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs text-slate-400 px-1">
-          <span>{sortedRuns.length} 件のテストラン</span>
-          <span>列ヘッダーをクリックしてソート（現在: {sortField} {sortOrder === 'asc' ? '昇順' : '降順'}）</span>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400 px-1">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-slate-300">
+              全 {totalItems} 件のテストラン
+            </span>
+            {totalItems > 0 && (
+              <span className="text-slate-500">
+                ({startIndex + 1}〜{endIndex} 件目を表示)
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-4">
+            {/* 1ページあたりの件数セレクタ */}
+            <div className="flex items-center gap-1.5">
+              <span>表示件数:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 focus:outline-none focus:border-cyan-500 text-xs"
+              >
+                <option value={25}>25件</option>
+                <option value={50}>50件</option>
+                <option value={100}>100件</option>
+                <option value={0}>全件</option>
+              </select>
+            </div>
+
+            {/* ページネーションコントロール */}
+            {pageSize > 0 && totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  className="rounded p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                  title="最初のページ"
+                >
+                  <ChevronsLeft size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  className="rounded p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                  title="前のページ"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="px-2 text-slate-300 font-medium">
+                  {safeCurrentPage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  className="rounded p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                  title="次のページ"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  className="rounded p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                  title="最後のページ"
+                >
+                  <ChevronsRight size={16} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="overflow-x-auto rounded-lg border border-slate-800">
           <table className="w-full text-sm">
             <thead className="bg-slate-900">
               <tr className="text-left text-slate-400 border-b border-slate-800">
-                <th className="px-3 py-2 w-10 text-center font-medium">#</th>
+                <th className="px-3 py-2 w-10 text-center font-medium">
+                  <input
+                    type="checkbox"
+                    checked={isAllPageSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = isSomePageSelected;
+                    }}
+                    onChange={toggleSelectAllPage}
+                    title="このページの全件を選択 / 解除"
+                    className="rounded border-slate-700 text-cyan-600 focus:ring-cyan-500 cursor-pointer"
+                  />
+                </th>
                 <th
                   onClick={() => handleSort('runId')}
                   className="px-3 py-2 font-medium cursor-pointer hover:text-slate-200 group transition-colors"
@@ -377,7 +579,7 @@ export default function SearchPage({
               </tr>
             </thead>
             <tbody>
-              {sortedRuns.map((run) => {
+              {paginatedRuns.map((run) => {
                 const isSelected = selectedRunIds.includes(run.runId);
                 const isCurrentFilteredTestName = testName === run.testName;
 
@@ -419,7 +621,7 @@ export default function SearchPage({
                             type="button"
                             onClick={() => handleFilterByTestName(run.testName)}
                             title="このテストケースで絞り込む"
-                            className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-cyan-300 hover:bg-slate-800 border border-slate-700/60 transition-colors"
+                            className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-cyan-300 hover:bg-slate-800 border border-slate-700/60 transition-colors cursor-pointer"
                           >
                             <Filter size={9} />
                             絞り込み
@@ -454,7 +656,7 @@ export default function SearchPage({
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => onOpenRun(run)}
-                          className="inline-flex items-center gap-1 rounded-md border border-cyan-700 px-2.5 py-1 text-xs text-cyan-300 hover:bg-cyan-500/10 transition-colors"
+                          className="inline-flex items-center gap-1 rounded-md border border-cyan-700 px-2.5 py-1 text-xs text-cyan-300 hover:bg-cyan-500/10 transition-colors cursor-pointer"
                         >
                           <FolderOpen size={13} /> 開く
                         </button>
@@ -462,7 +664,7 @@ export default function SearchPage({
                         {selectedRunIds.length === 1 && !isSelected ? (
                           <button
                             onClick={() => handleCompareWith(run.runId)}
-                            className="inline-flex items-center gap-1 rounded-md border border-amber-600/70 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-500/20 transition-colors"
+                            className="inline-flex items-center gap-1 rounded-md border border-amber-600/70 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-500/20 transition-colors cursor-pointer"
                             title={`${selectedRunIds[0]} とこのRunを比較`}
                           >
                             <ArrowLeftRight size={13} /> これと比較
@@ -470,7 +672,7 @@ export default function SearchPage({
                         ) : (
                           <button
                             onClick={() => toggleSelectRun(run.runId)}
-                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors ${
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors cursor-pointer ${
                               isSelected
                                 ? 'border-cyan-500 bg-cyan-900/40 text-cyan-300'
                                 : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
@@ -498,6 +700,56 @@ export default function SearchPage({
             </tbody>
           </table>
         </div>
+
+        {/* Bottom pagination bar */}
+        {pageSize > 0 && totalPages > 1 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400 px-1 pt-1">
+            <span>
+              {safeCurrentPage} / {totalPages} ページ ({totalItems} 件中 {startIndex + 1}〜{endIndex} 件目を表示)
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(1)}
+                disabled={safeCurrentPage <= 1}
+                className="rounded p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                title="最初のページ"
+              >
+                <ChevronsLeft size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safeCurrentPage <= 1}
+                className="rounded p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                title="前のページ"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="px-2 text-slate-300 font-medium">
+                {safeCurrentPage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safeCurrentPage >= totalPages}
+                className="rounded p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                title="次のページ"
+              >
+                <ChevronRight size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={safeCurrentPage >= totalPages}
+                className="rounded p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed"
+                title="最後のページ"
+              >
+                <ChevronsRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { MemoryDiffItem } from '../types';
 import type { MemoryTimelinePoint } from '../utils/diffQueries';
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react';
+import { useChartResize } from '../hooks/useChartResize';
 
 interface Props {
   timeline: MemoryTimelinePoint[];
@@ -13,34 +14,36 @@ interface Props {
 
 export default function MemoryDiffChart({ timeline, peakDiffs, runAId, runBId }: Props) {
   const [showAll, setShowAll] = useState(false);
+  const { containerRef, onChartReady } = useChartResize<HTMLDivElement>();
 
-  const indices = timeline.map((d) => d.index);
-  const memA = timeline.map((d) => d.memA);
-  const memB = timeline.map((d) => d.memB);
+  const option = useMemo(() => {
+    const indices = timeline.map((d) => d.index);
+    const memA = timeline.map((d) => d.memA);
+    const memB = timeline.map((d) => d.memB);
 
-  const option = {
-    animation: false,
-    backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'line', lineStyle: { color: '#475569' } },
-      formatter: (params: Array<{ axisValue: string | number; seriesName: string; value: number | null }>) => {
-        if (!params.length) return '';
-        const idx = Number(params[0].axisValue);
-        const item = timeline[idx];
-        if (!item) return '';
+    return {
+      animation: false,
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'line', lineStyle: { color: '#475569' } },
+        formatter: (params: Array<{ axisValue: string | number; seriesName: string; value: number | null }>) => {
+          if (!params.length) return '';
+          const idx = Number(params[0].axisValue);
+          const item = timeline[idx];
+          if (!item) return '';
 
-        const sign = (item.deltaMem ?? 0) >= 0 ? '+' : '';
-        const deltaColor = (item.deltaMem ?? 0) > 0 ? '#f87171' : (item.deltaMem ?? 0) < 0 ? '#4ade80' : '#94a3b8';
+          const sign = (item.deltaMem ?? 0) >= 0 ? '+' : '';
+          const deltaColor = (item.deltaMem ?? 0) > 0 ? '#f87171' : (item.deltaMem ?? 0) < 0 ? '#4ade80' : '#94a3b8';
 
-        return [
-          `<div class="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">Sample #${idx}</div>`,
-          `<div class="flex justify-between gap-4 text-xs"><span class="text-emerald-400 font-medium">Run A (${runAId}):</span><span>${item.memA?.toFixed(2) ?? '-'} MB</span></div>`,
-          `<div class="flex justify-between gap-4 text-xs"><span class="text-blue-400 font-medium">Run B (${runBId}):</span><span>${item.memB?.toFixed(2) ?? '-'} MB</span></div>`,
-          `<div class="flex justify-between gap-4 text-xs border-t border-slate-700/60 pt-1 mt-1 font-semibold" style="color: ${deltaColor}"><span>Δ TrackedTotal:</span><span>${sign}${item.deltaMem?.toFixed(2) ?? '-'} MB</span></div>`,
-        ].join('');
+          return [
+            `<div class="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">Sample #${idx}</div>`,
+            `<div class="flex justify-between gap-4 text-xs"><span class="text-emerald-400 font-medium">Run A (${runAId}):</span><span>${item.memA?.toFixed(2) ?? '-'} MB</span></div>`,
+            `<div class="flex justify-between gap-4 text-xs"><span class="text-blue-400 font-medium">Run B (${runBId}):</span><span>${item.memB?.toFixed(2) ?? '-'} MB</span></div>`,
+            `<div class="flex justify-between gap-4 text-xs border-t border-slate-700/60 pt-1 mt-1 font-semibold" style="color: ${deltaColor}"><span>Δ TrackedTotal:</span><span>${sign}${item.deltaMem?.toFixed(2) ?? '-'} MB</span></div>`,
+          ].join('');
+        },
       },
-    },
     legend: {
       data: [`Run A: ${runAId} (TrackedTotal)`, `Run B: ${runBId} (TrackedTotal)`],
       textStyle: { color: '#94a3b8', fontSize: 12 },
@@ -88,14 +91,15 @@ export default function MemoryDiffChart({ timeline, peakDiffs, runAId, runBId }:
       },
     ],
   };
+  }, [timeline, runAId, runBId]);
 
   const displayedPeaks = showAll ? peakDiffs : peakDiffs.slice(0, 8);
 
   return (
-    <div className="space-y-6">
+    <div ref={containerRef} className="space-y-6">
       <div>
         <h3 className="text-xs font-semibold text-slate-400 mb-2">TrackedTotal メモリ推移オーバーレイ</h3>
-        <ReactECharts option={option} style={{ height: 260 }} notMerge />
+        <ReactECharts option={option} style={{ height: 260 }} onChartReady={onChartReady} notMerge />
       </div>
 
       <div>

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import os
@@ -1174,6 +1175,10 @@ def upload_file_http(
                     f"Run '{run_id}' is already finalized on server (HTTP 409 Conflict). "
                     f"Use --overwrite to allow replacing existing run data.\nServer response: {body}"
                 ) from err
+            if err.code == 507:
+                raise RuntimeError(
+                    f"Server storage quota exceeded (HTTP 507 Insufficient Storage).\nServer response: {body}"
+                ) from err
             raise RuntimeError(f"HTTP {err.code} uploading {file_name}: {body}") from err
 
     print(f"Uploaded {file_name} successfully.")
@@ -1185,12 +1190,34 @@ def upload_child_files_http(
     run_id: str,
     uploads: list[UploadFile],
     overwrite: bool = False,
+    max_workers: int = 4,
 ) -> None:
-    print(f"Uploading {len(uploads)} child files via HTTP to {server_url} ...")
-    for u in uploads:
-        upload_file_http(
-            server_url, api_key, run_id, u.local_path.name, u.local_path, overwrite=overwrite
-        )
+    workers = min(max_workers, len(uploads)) if uploads else 1
+    print(
+        f"Uploading {len(uploads)} child files via HTTP to {server_url} (concurrency: {workers}) ..."
+    )
+    if len(uploads) <= 1 or workers <= 1:
+        for u in uploads:
+            upload_file_http(
+                server_url, api_key, run_id, u.local_path.name, u.local_path, overwrite=overwrite
+            )
+        return
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_upload = {
+            executor.submit(
+                upload_file_http,
+                server_url,
+                api_key,
+                run_id,
+                u.local_path.name,
+                u.local_path,
+                overwrite,
+            ): u
+            for u in uploads
+        }
+        for future in as_completed(future_to_upload):
+            future.result()
 
 
 def upload_manifest_http(
@@ -1220,12 +1247,26 @@ def upload_manifest_http(
         with urllib.request.urlopen(req) as resp:
             if resp.status not in (200, 201):
                 raise RuntimeError(f"HTTP manifest upload failed with status {resp.status}")
+            try:
+                resp_bytes = resp.read()
+                if resp_bytes and isinstance(resp_bytes, bytes):
+                    data = json.loads(resp_bytes.decode("utf-8", errors="replace"))
+                    if isinstance(data, dict) and data.get("status") == "warning":
+                        raise RuntimeError(
+                            f"Manifest uploaded but search indexing failed: {data.get('message', 'Unknown warning')}"
+                        )
+            except (json.JSONDecodeError, AttributeError):
+                pass
     except urllib.error.HTTPError as err:
         body = err.read().decode("utf-8", errors="replace")
         if err.code == 409:
             raise RuntimeError(
                 f"Run '{run_id}' is already finalized on server (HTTP 409 Conflict). "
                 f"Use --overwrite to allow replacing existing run data.\nServer response: {body}"
+            ) from err
+        if err.code == 507:
+            raise RuntimeError(
+                f"Server storage quota exceeded (HTTP 507 Insufficient Storage).\nServer response: {body}"
             ) from err
         raise RuntimeError(f"HTTP {err.code} uploading manifest: {body}") from err
 

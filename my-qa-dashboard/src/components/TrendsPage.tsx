@@ -31,6 +31,7 @@ import {
   groupPassFailByDate,
   toTrendDataPoints,
 } from '../utils/trendHelpers';
+import { useChartResize } from '../hooks/useChartResize';
 
 interface Props {
   onOpenRun: (runId: string) => void;
@@ -55,6 +56,7 @@ export default function TrendsPage({
   initialFilters,
   onFilterChange,
 }: Props) {
+  const { containerRef: chartsGridRef, registerChart } = useChartResize<HTMLDivElement>();
   const [runs, setRuns] = useState<TestRunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +75,7 @@ export default function TrendsPage({
     setLoading(true);
     setError(null);
     try {
-      const data = await searchService.searchRuns({});
+      const data = await searchService.searchRuns({ limit: 1000 });
       setRuns(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -698,7 +700,7 @@ export default function TrendsPage({
           )}
 
           {/* Charts Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div ref={chartsGridRef} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* FPS & Stability Trend Chart */}
             <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-5 shadow-xl backdrop-blur-sm">
               <div className="flex items-center justify-between mb-2">
@@ -714,6 +716,7 @@ export default function TrendsPage({
                 <ReactECharts
                   option={fpsChartOption}
                   style={{ height: '100%', width: '100%' }}
+                  onChartReady={registerChart}
                   onEvents={chartEvents}
                 />
               </div>
@@ -734,6 +737,7 @@ export default function TrendsPage({
                 <ReactECharts
                   option={memoryChartOption}
                   style={{ height: '100%', width: '100%' }}
+                  onChartReady={registerChart}
                   onEvents={chartEvents}
                 />
               </div>
@@ -753,6 +757,7 @@ export default function TrendsPage({
                 <ReactECharts
                   option={passFailChartOption}
                   style={{ height: '100%', width: '100%' }}
+                  onChartReady={registerChart}
                 />
               </div>
             </div>

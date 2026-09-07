@@ -146,14 +146,18 @@ export function useDuckDB() {
    * UE log) can exceed the JS engine's max string length and throw "Invalid string length".
    */
   const loadRowsAsTable = useCallback(
-    async (tableName: string, rows: Record<string, unknown>[]) => {
+    async (
+      tableName: string,
+      rows: Record<string, unknown>[],
+      fallbackSchemaDdl?: string,
+    ) => {
       const db = await getDuckDB();
 
       if (rows.length === 0) {
         const conn = await db.connect();
         try {
           await conn.query(`DROP TABLE IF EXISTS ${tableName}`);
-          await conn.query(`
+          const defaultUeLogSchema = `
             CREATE TABLE IF NOT EXISTS ${tableName} (
               line_number INTEGER,
               frame INTEGER,
@@ -164,7 +168,13 @@ export function useDuckDB() {
               message VARCHAR,
               type VARCHAR
             )
-          `);
+          `;
+          const ddl =
+            fallbackSchemaDdl ||
+            (tableName === 'ue_logs'
+              ? defaultUeLogSchema
+              : `CREATE TABLE IF NOT EXISTS ${tableName} (id INTEGER)`);
+          await conn.query(ddl);
         } finally {
           await conn.close();
         }

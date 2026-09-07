@@ -690,6 +690,39 @@ class TestHttpUpload(unittest.TestCase):
             self.assertIn("409 Conflict", str(ctx.exception))
             self.assertIn("--overwrite", str(ctx.exception))
 
+    @patch("qa_upload.upload_file_http")
+    def test_upload_child_files_http_parallel(self, mock_upload_file):
+        uploads = [
+            qa_upload.UploadFile(local_path=Path(f"/tmp/file_{i}.csv"), s3_key=f"runs/run-123/file_{i}.csv", artifact_type="fps")
+            for i in range(5)
+        ]
+        qa_upload.upload_child_files_http(
+            server_url="http://localhost:8080",
+            api_key="secret-key",
+            run_id="run-123",
+            uploads=uploads,
+            overwrite=False,
+            max_workers=3,
+        )
+        self.assertEqual(mock_upload_file.call_count, 5)
+
+    @patch("urllib.request.urlopen")
+    def test_upload_manifest_http_detects_warning(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"status":"warning","message":"SQLite index failed: syntax error"}'
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        manifest = {"run_id": "run-123", "result": "PASSED"}
+        with self.assertRaises(RuntimeError) as ctx:
+            qa_upload.upload_manifest_http(
+                server_url="http://localhost:8080",
+                api_key="secret-key",
+                run_id="run-123",
+                manifest=manifest,
+            )
+        self.assertIn("search indexing failed", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

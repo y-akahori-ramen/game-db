@@ -164,6 +164,18 @@ export default function App() {
             parseUeLogText(logText) as unknown as Record<string, unknown>[],
           );
         }
+        // Clean up previous run files if not present in new run
+        if (!run.fpsDataUrl) {
+          await dropFile('run_fps.csv').catch(() => {});
+          await dropFile('run_fps.json').catch(() => {});
+        }
+        if (!run.memoryDataUrl) {
+          await dropFile('run_memory.csv').catch(() => {});
+          await dropFile('run_memory.json').catch(() => {});
+        }
+        if (!run.logsDataUrl) {
+          await loadRowsAsTable(UE_LOG_TABLE, []).catch(() => {});
+        }
 
         setFpsData(fpsResult);
         setMemoryData(memoryResult);
@@ -174,7 +186,7 @@ export default function App() {
         setLoadingData(false);
       }
     },
-    [loadRemoteFile, executeQuery, loadRowsAsTable],
+    [loadRemoteFile, dropFile, executeQuery, loadRowsAsTable],
   );
 
   // Sync route.runId with selectedRun
@@ -475,28 +487,40 @@ export default function App() {
             onFilterChange={(filters) => updateQueryParams(filters, true)}
           />
         </Suspense>
-      ) : route.name === 'compare' && route.compareRunIds ? (
-        <Suspense
-          fallback={
-            <div className="flex h-96 items-center justify-center text-slate-500">
-              <Loader2 className="animate-spin text-cyan-400" size={24} />
-            </div>
-          }
-        >
-          <ComparePage
-            runAId={route.compareRunIds[0]}
-            runBId={route.compareRunIds[1]}
-            onBackToSearch={navigateToSearch}
-            onSwapRuns={() =>
-              navigateToCompare(route.compareRunIds![1], route.compareRunIds![0])
+      ) : route.name === 'compare' ? (
+        route.compareRunIds ? (
+          <Suspense
+            fallback={
+              <div className="flex h-96 items-center justify-center text-slate-500">
+                <Loader2 className="animate-spin text-cyan-400" size={24} />
+              </div>
             }
-            loadRemoteFile={loadRemoteFile}
-            dropFile={dropFile}
-            executeQuery={executeQuery}
-            duckDbStatus={status}
-            getShareableUrl={(ids) => getShareableUrl(ids)}
-          />
-        </Suspense>
+          >
+            <ComparePage
+              runAId={route.compareRunIds[0]}
+              runBId={route.compareRunIds[1]}
+              onBackToSearch={navigateToSearch}
+              onSwapRuns={() =>
+                navigateToCompare(route.compareRunIds![1], route.compareRunIds![0])
+              }
+              loadRemoteFile={loadRemoteFile}
+              dropFile={dropFile}
+              executeQuery={executeQuery}
+              duckDbStatus={status}
+              getShareableUrl={(ids) => getShareableUrl(ids)}
+            />
+          </Suspense>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <p className="text-slate-400 mb-4 text-sm">比較対象のテスト実行（2件）が指定されていません。</p>
+            <button
+              onClick={() => navigateToSearch()}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors cursor-pointer"
+            >
+              <ArrowLeft size={16} /> 検索画面からテストを選択する
+            </button>
+          </div>
+        )
       ) : (
         <main className="p-6 space-y-6">
           {/* Artifacts produced by the run */}

@@ -44,6 +44,21 @@ export default function AccessKeyModal({ isOpen, onClose }: AccessKeyModalProps)
     }
   }, [isOpen, fetchKeys]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   // Handle creation
   const handleCreateKey = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,7 +108,17 @@ export default function AccessKeyModal({ isOpen, onClose }: AccessKeyModalProps)
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="access-key-modal-title"
+    >
       <div className="relative w-full max-w-2xl rounded-xl border border-slate-800 bg-slate-900 shadow-2xl p-6 text-slate-100 max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
@@ -103,7 +128,9 @@ export default function AccessKeyModal({ isOpen, onClose }: AccessKeyModalProps)
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold text-slate-100">CLI アップロード用 API キー管理</h2>
+                <h2 id="access-key-modal-title" className="text-lg font-semibold text-slate-100">
+                  CLI アップロード用 API キー管理
+                </h2>
                 {isMock && (
                   <span className="text-[11px] font-normal px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
                     ローカル開発モック

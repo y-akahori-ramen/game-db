@@ -1,8 +1,10 @@
 import { memo, useCallback, useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { FpsMetric } from '../types';
+import { useChartResize } from '../hooks/useChartResize';
 
 interface Props {
+
   data: FpsMetric[];
   isFullscreen?: boolean;
   currentTime?: number;
@@ -18,6 +20,8 @@ const SERIES: { key: keyof FpsMetric; name: string; color: string }[] = [
 ];
 
 function FpsChart({ data, isFullscreen = false, currentTime, onSeek }: Props) {
+  const { containerRef, onChartReady: onResizeChartReady } = useChartResize<HTMLDivElement>();
+
   // ElapsedTime is the shared x-axis; PersistentLevel is looked up per-point
   // for the tooltip rather than plotted as its own series.
   const option = useMemo(() => {
@@ -112,6 +116,7 @@ function FpsChart({ data, isFullscreen = false, currentTime, onSeek }: Props) {
 
   const handleChartReady = useCallback(
     (instance: any) => {
+      onResizeChartReady(instance);
       const zr = instance.getZr();
       zr.off('click');
       zr.on('click', (params: any) => {
@@ -126,7 +131,7 @@ function FpsChart({ data, isFullscreen = false, currentTime, onSeek }: Props) {
         }
       });
     },
-    [onSeek],
+    [onSeek, onResizeChartReady],
   );
 
   const onEvents = useMemo(
@@ -142,7 +147,7 @@ function FpsChart({ data, isFullscreen = false, currentTime, onSeek }: Props) {
   );
 
   return (
-    <div className={isFullscreen ? 'flex-1 min-h-0 w-full' : 'w-full'}>
+    <div ref={containerRef} className={isFullscreen ? 'flex-1 min-h-0 w-full' : 'w-full'}>
       <ReactECharts
         option={option}
         style={{ height: isFullscreen ? 'calc(100vh - 100px)' : 320, width: '100%' }}

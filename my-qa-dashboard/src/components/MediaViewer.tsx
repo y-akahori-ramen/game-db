@@ -190,6 +190,7 @@ export default function MediaViewer({
       link.href = resolveUrl(item.url);
       link.download = item.fileName;
       link.target = '_blank';
+      document.body.appendChild(link);
       link.click();
       link.remove();
     },

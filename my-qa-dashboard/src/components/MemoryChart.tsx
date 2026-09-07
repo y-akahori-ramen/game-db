@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { MemoryMetric } from '../types';
 import { getMemoryElapsedSeconds, TIME_COLUMNS } from '../utils/timeHelpers';
+import { useChartResize } from '../hooks/useChartResize';
 
 interface Props {
   data: MemoryMetric[];
@@ -58,7 +59,10 @@ function MemoryChart({
       .filter((key) => !TIME_COLUMNS.has(key))
       .map((key) => ({
         key,
-        max: data.reduce((acc, row) => Math.max(acc, row[key] ?? -Infinity), -Infinity),
+        max: data.reduce((acc, row) => {
+          const val = row[key];
+          return typeof val === 'number' && !isNaN(val) ? Math.max(acc, val) : acc;
+        }, 0),
       }))
       .sort((a, b) => b.max - a.max);
   }, [data]);
@@ -157,8 +161,11 @@ function MemoryChart({
     };
   }, [data, selectedColumns, duration, currentTime]);
 
+  const { containerRef, onChartReady: onResizeChartReady } = useChartResize<HTMLDivElement>();
+
   const handleChartReady = useCallback(
     (instance: any) => {
+      onResizeChartReady(instance);
       const zr = instance.getZr();
       zr.off('click');
       zr.on('click', (params: any) => {
@@ -173,7 +180,7 @@ function MemoryChart({
         }
       });
     },
-    [onSeek],
+    [onSeek, onResizeChartReady],
   );
 
   const onEvents = useMemo(
@@ -189,7 +196,7 @@ function MemoryChart({
   );
 
   return (
-    <div>
+    <div ref={containerRef}>
       {columns.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1.5 rounded-md border border-slate-800 bg-slate-950/40 p-2">
           <span className="text-xs text-slate-500">項目を追加:</span>

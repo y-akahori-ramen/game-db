@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { FpsDiffMetric } from '../types';
+import { useChartResize } from '../hooks/useChartResize';
 
 interface Props {
   data: FpsDiffMetric[];
@@ -10,50 +11,52 @@ interface Props {
 
 export default function FpsDiffChart({ data, runAId, runBId }: Props) {
   const [diffMode, setDiffMode] = useState<'fps' | 'threads'>('fps');
+  const { containerRef, onChartReady } = useChartResize<HTMLDivElement>();
 
-  const seconds = data.map((d) => d.second);
-  const fpsA = data.map((d) => d.fpsA);
-  const fpsB = data.map((d) => d.fpsB);
-  const deltaFps = data.map((d) => d.deltaFps);
-  const deltaRt = data.map((d) => d.deltaRenderThread);
-  const deltaGt = data.map((d) => d.deltaGameThread);
-  const deltaGpu = data.map((d) => d.deltaGpuFrame);
+  const option = useMemo(() => {
+    const seconds = data.map((d) => d.second);
+    const fpsA = data.map((d) => d.fpsA);
+    const fpsB = data.map((d) => d.fpsB);
+    const deltaFps = data.map((d) => d.deltaFps);
+    const deltaRt = data.map((d) => d.deltaRenderThread);
+    const deltaGt = data.map((d) => d.deltaGameThread);
+    const deltaGpu = data.map((d) => d.deltaGpuFrame);
 
-  const option = {
-    animation: false,
-    backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'cross', lineStyle: { color: '#475569' } },
-      formatter: (params: Array<{ axisValue: string | number; seriesName: string; value: number | null; color: string }>) => {
-        if (!params.length) return '';
-        const secIndex = Number(params[0].axisValue);
-        const item = data.find((d) => d.second === secIndex);
-        if (!item) return '';
+    return {
+      animation: false,
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross', lineStyle: { color: '#475569' } },
+        formatter: (params: Array<{ axisValue: string | number; seriesName: string; value: number | null; color: string }>) => {
+          if (!params.length) return '';
+          const secIndex = Number(params[0].axisValue);
+          const item = data.find((d) => d.second === secIndex);
+          if (!item) return '';
 
-        const signFps = (item.deltaFps ?? 0) >= 0 ? '+' : '';
-        const fpsColor = (item.deltaFps ?? 0) >= 0 ? '#4ade80' : '#f87171';
+          const signFps = (item.deltaFps ?? 0) >= 0 ? '+' : '';
+          const fpsColor = (item.deltaFps ?? 0) >= 0 ? '#4ade80' : '#f87171';
 
-        const lines = [
-          `<div class="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">Elapsed: ${item.second}s</div>`,
-          `<div class="flex justify-between gap-4 text-xs"><span class="text-cyan-400 font-medium">Run A (${runAId}):</span><span>${item.fpsA?.toFixed(1) ?? '-'} FPS (${item.frametimeA?.toFixed(1) ?? '-'}ms)</span></div>`,
-          `<div class="flex justify-between gap-4 text-xs"><span class="text-amber-400 font-medium">Run B (${runBId}):</span><span>${item.fpsB?.toFixed(1) ?? '-'} FPS (${item.frametimeB?.toFixed(1) ?? '-'}ms)</span></div>`,
-          `<div class="flex justify-between gap-4 text-xs border-t border-slate-700/60 pt-1 mt-1 font-semibold" style="color: ${fpsColor}"><span>Δ FPS (B - A):</span><span>${signFps}${item.deltaFps?.toFixed(1) ?? '-'} FPS</span></div>`,
-        ];
+          const lines = [
+            `<div class="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">Elapsed: ${item.second}s</div>`,
+            `<div class="flex justify-between gap-4 text-xs"><span class="text-cyan-400 font-medium">Run A (${runAId}):</span><span>${item.fpsA?.toFixed(1) ?? '-'} FPS (${item.frametimeA?.toFixed(1) ?? '-'}ms)</span></div>`,
+            `<div class="flex justify-between gap-4 text-xs"><span class="text-amber-400 font-medium">Run B (${runBId}):</span><span>${item.fpsB?.toFixed(1) ?? '-'} FPS (${item.frametimeB?.toFixed(1) ?? '-'}ms)</span></div>`,
+            `<div class="flex justify-between gap-4 text-xs border-t border-slate-700/60 pt-1 mt-1 font-semibold" style="color: ${fpsColor}"><span>Δ FPS (B - A):</span><span>${signFps}${item.deltaFps?.toFixed(1) ?? '-'} FPS</span></div>`,
+          ];
 
-        if (item.deltaRenderThread !== null || item.deltaGameThread !== null || item.deltaGpuFrame !== null) {
-          lines.push(
-            `<div class="border-t border-slate-700/60 pt-1 mt-1 text-[11px] text-slate-300">` +
-              `<div>Δ RenderThread: <span class="${(item.deltaRenderThread ?? 0) > 0 ? 'text-red-400' : 'text-green-400'}">${(item.deltaRenderThread ?? 0) > 0 ? '+' : ''}${item.deltaRenderThread?.toFixed(2) ?? '-'}ms</span></div>` +
-              `<div>Δ GameThread: <span class="${(item.deltaGameThread ?? 0) > 0 ? 'text-red-400' : 'text-green-400'}">${(item.deltaGameThread ?? 0) > 0 ? '+' : ''}${item.deltaGameThread?.toFixed(2) ?? '-'}ms</span></div>` +
-              `<div>Δ GPUFrame: <span class="${(item.deltaGpuFrame ?? 0) > 0 ? 'text-red-400' : 'text-green-400'}">${(item.deltaGpuFrame ?? 0) > 0 ? '+' : ''}${item.deltaGpuFrame?.toFixed(2) ?? '-'}ms</span></div>` +
-              `</div>`,
-          );
-        }
+          if (item.deltaRenderThread !== null || item.deltaGameThread !== null || item.deltaGpuFrame !== null) {
+            lines.push(
+              `<div class="border-t border-slate-700/60 pt-1 mt-1 text-[11px] text-slate-300">` +
+                `<div>Δ RenderThread: <span class="${(item.deltaRenderThread ?? 0) > 0 ? 'text-red-400' : 'text-green-400'}">${(item.deltaRenderThread ?? 0) > 0 ? '+' : ''}${item.deltaRenderThread?.toFixed(2) ?? '-'}ms</span></div>` +
+                `<div>Δ GameThread: <span class="${(item.deltaGameThread ?? 0) > 0 ? 'text-red-400' : 'text-green-400'}">${(item.deltaGameThread ?? 0) > 0 ? '+' : ''}${item.deltaGameThread?.toFixed(2) ?? '-'}ms</span></div>` +
+                `<div>Δ GPUFrame: <span class="${(item.deltaGpuFrame ?? 0) > 0 ? 'text-red-400' : 'text-green-400'}">${(item.deltaGpuFrame ?? 0) > 0 ? '+' : ''}${item.deltaGpuFrame?.toFixed(2) ?? '-'}ms</span></div>` +
+                `</div>`,
+            );
+          }
 
-        return lines.join('');
+          return lines.join('');
+        },
       },
-    },
     legend: {
       data:
         diffMode === 'fps'
@@ -194,9 +197,10 @@ export default function FpsDiffChart({ data, runAId, runBId }: Props) {
           ]),
     ],
   };
+  }, [data, runAId, runBId, diffMode]);
 
   return (
-    <div className="space-y-2">
+    <div ref={containerRef} className="space-y-2">
       <div className="flex justify-end gap-2 text-xs">
         <span className="text-slate-400 self-center">下段差分表示:</span>
         <button
@@ -220,7 +224,7 @@ export default function FpsDiffChart({ data, runAId, runBId }: Props) {
           Δ スレッド時間 (折れ線)
         </button>
       </div>
-      <ReactECharts option={option} style={{ height: 380 }} notMerge />
+      <ReactECharts option={option} style={{ height: 380 }} onChartReady={onChartReady} notMerge />
     </div>
   );
 }
