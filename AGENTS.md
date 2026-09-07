@@ -39,3 +39,4 @@ Everything runs in the browser; there is no backend.
 - User-supplied strings interpolated into SQL must be escaped (see `escapeSql` in `LogTable.tsx` — single quotes doubled).
 - Fetch public assets with the `import.meta.env.BASE_URL` prefix, not absolute `/` paths.
 - UI is dark-themed (slate-950 background, cyan accents); some user-facing labels are in Japanese.
+- **Git commit messages must be written in Japanese.** Use conventional prefix if applicable, but keep summary and description in Japanese (e.g. `feat: ○○機能の実装`, `fix: △△の不具合を修正`).
