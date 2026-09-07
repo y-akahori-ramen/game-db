@@ -74,14 +74,12 @@ export default function ComparePage({
     setLoadError(null);
 
     try {
-      const [allRuns, loadedThresholds] = await Promise.all([
-        searchService.searchRuns({}),
+      const [summaryA, summaryB, loadedThresholds] = await Promise.all([
+        searchService.getRun(runAId),
+        searchService.getRun(runBId),
         loadRegressionThresholds(),
       ]);
       setThresholds(loadedThresholds);
-
-      const summaryA = allRuns.find((r) => r.runId === runAId);
-      const summaryB = allRuns.find((r) => r.runId === runBId);
 
       if (!summaryA) throw new Error(`Run A (${runAId}) が見つかりませんでした。`);
       if (!summaryB) throw new Error(`Run B (${runBId}) が見つかりませんでした。`);

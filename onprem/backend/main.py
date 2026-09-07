@@ -310,13 +310,17 @@ def _index_manifest(manifest_path: Path, run_id: str) -> None:
     if not isinstance(manifest, dict):
         raise ValueError("manifest.json must be a JSON object")
 
+    raw_status = manifest.get("status") or manifest.get("result") or "PASSED"
+    status_str = str(raw_status).upper()
+    valid_status = status_str if status_str in ("PASSED", "FAILED", "ABORTED") else "PASSED"
+
     item: dict[str, Any] = {
         "runId": manifest.get("run_id", run_id),
         "executedAt": manifest.get("executed_at", datetime.now(timezone.utc).isoformat()),
         "gameVersion": manifest.get("game_version", "unknown"),
         "platform": manifest.get("platform", "unknown"),
         "testName": manifest.get("test_name", "unknown"),
-        "status": manifest.get("result", "PASSED"),
+        "status": valid_status,
         "gsiAllPk": "ALL",
     }
 
@@ -347,7 +351,7 @@ def _index_manifest(manifest_path: Path, run_id: str) -> None:
 
 
 # ==============================================================================
-# Search API Routes
+# Search & Run API Routes
 # ==============================================================================
 
 @app.post("/api/search")
@@ -371,6 +375,26 @@ def search_runs_get(
     return _execute_search(payload)
 
 
+@app.get("/api/runs/{run_id}")
+def get_run(run_id: str) -> dict[str, Any]:
+    """Retrieve a single test run summary by runId."""
+    clean_run_id = posixpath.basename(run_id)
+    if not clean_run_id or clean_run_id in (".", ".."):
+        raise HTTPException(status_code=400, detail="Invalid run_id")
+    table = dynamodb.Table(TABLE_NAME)
+    try:
+        resp = table.get_item(Key={"runId": clean_run_id})
+        item = resp.get("Item")
+        if not item:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return _item_to_summary(item)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        LOGGER.exception("DynamoDB get_item failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Database lookup failed")
+
+
 def _execute_search(filter_payload: SearchFilter) -> list[dict[str, Any]]:
     table = dynamodb.Table(TABLE_NAME)
     payload_dict = {k: v for k, v in filter_payload.model_dump().items() if v}
@@ -392,7 +416,10 @@ def _execute_search(filter_payload: SearchFilter) -> list[dict[str, Any]]:
 
     filter_expr = None
     for field, val in payload_dict.items():
-        cond = Attr(field).eq(val)
+        if field in ("testName", "gameVersion"):
+            cond = Attr(field).contains(val)
+        else:
+            cond = Attr(field).eq(val)
         filter_expr = cond if filter_expr is None else filter_expr & cond
 
     if filter_expr is not None:

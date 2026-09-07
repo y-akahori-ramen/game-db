@@ -46,4 +46,25 @@ export class ApiSearchService implements SearchService {
             artifacts: (run.artifacts || []).map((artifact) => ({ ...artifact, url: stripLeadingSlash(artifact.url) })),
         }));
     }
+
+    async getRun(runId: string): Promise<TestRunSummary | null> {
+        const response = await fetch(`${import.meta.env.BASE_URL}api/runs/${encodeURIComponent(runId)}`, {
+            credentials: 'include',
+        });
+        if (response.status === 404) {
+            return null;
+        }
+        if (!response.ok) {
+            throw new Error(`Run detail API request failed with status ${response.status}.`);
+        }
+        const run = (await response.json()) as SearchApiRun;
+        return {
+            ...run,
+            fpsDataUrl: run.fpsDataUrl ? stripLeadingSlash(run.fpsDataUrl) : undefined,
+            memoryDataUrl: run.memoryDataUrl ? stripLeadingSlash(run.memoryDataUrl) : undefined,
+            logsDataUrl: run.logsDataUrl ? stripLeadingSlash(run.logsDataUrl) : undefined,
+            videoUrl: run.videoUrl ? stripLeadingSlash(run.videoUrl) : undefined,
+            artifacts: (run.artifacts || []).map((artifact) => ({ ...artifact, url: stripLeadingSlash(artifact.url) })),
+        };
+    }
 }

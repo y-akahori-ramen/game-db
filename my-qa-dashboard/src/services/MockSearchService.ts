@@ -33,4 +33,9 @@ export class MockSearchService implements SearchService {
         const runs = await this.fetchRuns();
         return runs.filter((run) => matches(run, filter));
     }
+
+    async getRun(runId: string): Promise<TestRunSummary | null> {
+        const runs = await this.fetchRuns();
+        return runs.find((run) => run.runId === runId) ?? null;
+    }
 }

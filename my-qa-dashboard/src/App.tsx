@@ -165,20 +165,19 @@ export default function App() {
     let cancelled = false;
 
     if (route.name === 'dashboard' && route.runId) {
-      if (selectedRun?.runId !== route.runId) {
+      const runId = route.runId;
+      if (selectedRun?.runId !== runId) {
         // Find run by ID
         void (async () => {
           try {
             setLoadingData(true);
-            setLoadError(null);
-            const allRuns = await searchService.searchRuns({});
+            const targetRun = await searchService.getRun(runId);
             if (cancelled) return;
-            const targetRun = allRuns.find((r) => r.runId === route.runId);
             if (targetRun) {
               await loadRunData(targetRun);
             } else {
               if (cancelled) return;
-              setLoadError(`Run ID "${route.runId}" が見つかりませんでした。`);
+              setLoadError(`Run ID "${runId}" が見つかりませんでした。`);
               setLoadingData(false);
             }
           } catch (err) {

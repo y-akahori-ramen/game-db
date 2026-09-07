@@ -59,4 +59,5 @@ export interface TestRunSummary {
 
 export interface SearchService {
     searchRuns(filter: SearchFilter): Promise<TestRunSummary[]>;
+    getRun(runId: string): Promise<TestRunSummary | null>;
 }

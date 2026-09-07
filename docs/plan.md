@@ -1,9 +1,15 @@
 # Game QA Analytics Dashboard — 今後の開発計画書 (Development Plan)
 
 - **作成日**: 2026-09-06
-- **ステータス**: ドラフト / レビュー待ち
+- **改訂日**: 2026-09-07（社内オンプレミス＋AWS DynamoDB ハイブリッド構成への移行注記）
+- **ステータス**: ドラフト / 一部実装完了 (Phase 1〜4 先行実装あり)
 - **対象プロダクト**: Game QA Analytics Dashboard (`game-db`)
 - **想定用途**: ゲーム開発中のログ・プロファイルデータ（FPS、メモリ、描画時間等）および自動テスト結果の収集・蓄積・横断分析Webサービス
+
+> [!IMPORTANT]
+> **アーキテクチャ移行に関する注記 (2026-09-07)**:  
+> 本計画書作成後、CloudFront の単一ファイル 30GB 制限の完全撤廃およびクラウド転送・ストレージコスト削減のため、データ保存・Web ホスティングを **社内 DMZ / オンプレミス環境（Nginx + OAuth2-Proxy + FastAPI + ローカルストレージ、個人用 API キー連携）** へ移行し、検索インデックス（**AWS DynamoDB**）とハイブリッド連携する構成へ改訂されました。  
+> 最新のインフラ・運用構成の詳細は [`docs/aws-architecture.md`](aws-architecture.md) および [`docs/dmz-reverse-proxy-guide.md`](dmz-reverse-proxy-guide.md) を参照してください。本計画書における S3 / CloudFront / Lambda@Edge 前提の記述は、当時の課題分析および S3 互換アップロード運用時の参考情報として保持されています。
 
 ---
 
@@ -117,7 +123,10 @@
 
 ### 2.3 バックエンド & クラウドインフラ (`infra/`, `lambda/`)
 
-#### 実装済みの機能
+> [!NOTE]
+> 2026-09-07 のアーキテクチャ改訂により、Web ホスティング・大容量データ保存・API（アップロード/検索/キー管理）はオンプレミス環境 (`onprem/`) へ移行し、AWS 側は DynamoDB 検索インデックスのみを利用するハイブリッド構成となりました。以下は初期 AWS 完全クラウド構成時点の棚卸しです。
+
+#### 実装済みの機能 (初期クラウド構成)
 - **AWS CDK v2**: TypeScript による Infrastructure as Code。
 - **EdgeStack (us-east-1)**:
   - WAFv2 WebACL (CloudFront スコープ)。
