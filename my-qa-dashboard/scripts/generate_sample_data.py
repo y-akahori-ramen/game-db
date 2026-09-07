@@ -382,6 +382,11 @@ def main() -> None:
             artifacts.append({"url": f"sample_data/{spec.run_id}/{extra_name}", "fileName": extra_name, "type": extra_type})
             print(f"wrote {extra_path}")
 
+        fps_inst = 1000.0 / df_fps["FPSMs"].replace(0, np.nan)
+        avg_fps = round(float(fps_inst.mean()), 1)
+        min_fps = round(float(fps_inst.min()), 1)
+        peak_memory_mb = round(float(df_mem["TrackedTotal"].max() / (1024 * 1024)), 1)
+
         summary = {
             "runId": spec.run_id,
             "gameVersion": spec.game_version,
@@ -389,6 +394,9 @@ def main() -> None:
             "testName": spec.test_name,
             "status": spec.status,
             "timestamp": spec.timestamp,
+            "avgFps": avg_fps,
+            "minFps": min_fps,
+            "peakMemoryMb": peak_memory_mb,
             "fpsDataUrl": fps_url,
             "memoryDataUrl": memory_url,
             "logsDataUrl": logs_url,

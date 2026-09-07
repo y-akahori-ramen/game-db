@@ -219,6 +219,12 @@ def _item_to_summary(item: dict[str, Any]) -> dict[str, Any]:
         summary["logsDataUrl"] = log_url
     if video_url:
         summary["videoUrl"] = video_url
+    if item.get("avgFps") is not None:
+        summary["avgFps"] = float(item["avgFps"])
+    if item.get("minFps") is not None:
+        summary["minFps"] = float(item["minFps"])
+    if item.get("peakMemoryMb") is not None:
+        summary["peakMemoryMb"] = float(item["peakMemoryMb"])
 
     return summary
 

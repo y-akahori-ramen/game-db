@@ -1,5 +1,5 @@
 export interface RouteState {
-  name: 'search' | 'dashboard' | 'compare';
+  name: 'search' | 'dashboard' | 'compare' | 'trends';
   runId?: string;
   compareRunIds?: [string, string];
 }
@@ -12,6 +12,8 @@ export interface QueryParams {
   platform?: string;
   status?: string;
   media?: string;
+  range?: string;
+  view?: string;
 }
 
 export function normalizePathname(pathname: string, base: string = '/'): string {
@@ -40,6 +42,8 @@ export function parseRouteFromLocation(
   const platformParam = searchParams.get('platform');
   const statusParam = searchParams.get('status');
   const mediaParam = searchParams.get('media');
+  const rangeParam = searchParams.get('range');
+  const viewParam = searchParams.get('view');
 
   const params: QueryParams = {};
   if (tParam !== null && !isNaN(Number(tParam))) {
@@ -53,6 +57,24 @@ export function parseRouteFromLocation(
   if (platformParam) params.platform = platformParam;
   if (statusParam) params.status = statusParam;
   if (mediaParam) params.media = mediaParam;
+  if (rangeParam) params.range = rangeParam;
+  if (viewParam) params.view = viewParam;
+
+  // Matches /trends
+  if (path === '/trends' || path.startsWith('/trends/')) {
+    return {
+      route: { name: 'trends' },
+      params,
+    };
+  }
+
+  // Matches ?view=trends
+  if (viewParam === 'trends') {
+    return {
+      route: { name: 'trends' },
+      params,
+    };
+  }
 
   // Matches /compare/:runA/:runB
   const compareMatch = /^\/compare\/([^/?#]+)\/([^/?#]+)/.exec(path);

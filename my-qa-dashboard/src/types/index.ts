@@ -109,3 +109,34 @@ export interface ComparisonSummary {
   verdict: RegressionVerdict;
   verdictReasons: string[];
 }
+
+/** A point in the time-series trend of test runs. */
+export interface TrendDataPoint {
+  runId: string;
+  timestamp: string;
+  formattedDate: string;
+  gameVersion: string;
+  platform: string;
+  testName: string;
+  status: 'PASSED' | 'FAILED';
+  avgFps: number | null;
+  minFps: number | null;
+  peakMemoryMb: number | null;
+}
+
+export type TrendTimeRange = '7d' | '14d' | '30d' | 'all';
+
+/** High-level trend statistics and KPIs calculated across selected runs. */
+export interface TrendSummaryStats {
+  totalRuns: number;
+  passedRuns: number;
+  failedRuns: number;
+  passRate: number; // Percentage 0 - 100
+  latestAvgFps: number | null;
+  overallAvgFps: number | null;
+  deltaFps: number | null; // latestAvgFps - overallAvgFps
+  latestPeakMemory: number | null;
+  overallPeakMemory: number | null;
+  deltaPeakMemory: number | null; // latestPeakMemory - overallPeakMemory
+}
+

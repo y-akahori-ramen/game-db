@@ -33,6 +33,8 @@ function buildUrl(path: string, params?: QueryParams): string {
   if (params?.platform) searchParams.set('platform', params.platform);
   if (params?.status) searchParams.set('status', params.status);
   if (params?.media) searchParams.set('media', params.media);
+  if (params?.range) searchParams.set('range', params.range);
+  if (params?.view) searchParams.set('view', params.view);
 
   const query = searchParams.toString();
   return query ? `${fullPath}?${query}` : fullPath;
@@ -56,6 +58,12 @@ export function useAppRouter() {
     const targetUrl = buildUrl('/', params);
     window.history.pushState(null, '', targetUrl);
     setRouteInfo({ route: { name: 'search' }, params: params || {} });
+  }, []);
+
+  const navigateToTrends = useCallback((params?: QueryParams) => {
+    const targetUrl = buildUrl('/trends', params);
+    window.history.pushState(null, '', targetUrl);
+    setRouteInfo({ route: { name: 'trends' }, params: params || {} });
   }, []);
 
   const navigateToRun = useCallback((runId: string, params?: QueryParams) => {
@@ -94,7 +102,9 @@ export function useAppRouter() {
         }
 
         let currentPath = '/';
-        if (prev.route.name === 'dashboard' && prev.route.runId) {
+        if (prev.route.name === 'trends') {
+          currentPath = '/trends';
+        } else if (prev.route.name === 'dashboard' && prev.route.runId) {
           currentPath = `/runs/${encodeURIComponent(prev.route.runId)}`;
         } else if (prev.route.name === 'compare' && prev.route.compareRunIds) {
           currentPath = `/compare?a=${encodeURIComponent(prev.route.compareRunIds[0])}&b=${encodeURIComponent(prev.route.compareRunIds[1])}`;
@@ -135,6 +145,7 @@ export function useAppRouter() {
     route: routeInfo.route,
     queryParams: routeInfo.params,
     navigateToSearch,
+    navigateToTrends,
     navigateToRun,
     navigateToCompare,
     updateQueryParams,

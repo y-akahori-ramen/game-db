@@ -39,6 +39,12 @@ export interface TestRunSummary {
     testName: string;
     status: 'PASSED' | 'FAILED';
     timestamp: string;
+    /** Average FPS across the test run, if available. */
+    avgFps?: number;
+    /** Minimum FPS recorded during the run, if available. */
+    minFps?: number;
+    /** Peak memory usage in MB, if available. */
+    peakMemoryMb?: number;
     /** BASE_URL-relative path to the FPS data file (.csv or .json). Absent if no FPS data. */
     fpsDataUrl?: string;
     /** BASE_URL-relative path to the memory data file (.csv or .json). Absent if no memory data. */

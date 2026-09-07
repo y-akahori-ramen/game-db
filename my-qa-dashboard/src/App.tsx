@@ -14,7 +14,9 @@ import {
   MemoryStick,
   Minimize2,
   ScrollText,
+  Search,
   Share2,
+  TrendingUp,
   XCircle,
 } from 'lucide-react';
 import { useFullscreen } from './hooks/useFullscreen';
@@ -24,6 +26,7 @@ import MemoryChart from './components/MemoryChart';
 import LogTable, { UE_LOG_TABLE } from './components/LogTable';
 import SearchPage from './components/SearchPage';
 import ComparePage from './components/ComparePage';
+import TrendsPage from './components/TrendsPage';
 import ArtifactsPanel from './components/ArtifactsPanel';
 import MediaViewer from './components/MediaViewer';
 import { useAppRouter } from './router';
@@ -47,6 +50,7 @@ export default function App() {
     route,
     queryParams,
     navigateToSearch,
+    navigateToTrends,
     navigateToRun,
     navigateToCompare,
     updateQueryParams,
@@ -290,7 +294,7 @@ export default function App() {
             {(route.name === 'dashboard' || route.name === 'compare') && (
               <button
                 onClick={() => navigateToSearch()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1.5 text-sm text-slate-200 hover:bg-slate-800 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1.5 text-sm text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <ArrowLeft size={16} /> 検索に戻る
               </button>
@@ -299,10 +303,38 @@ export default function App() {
             <h1 className="text-lg font-semibold">
               {route.name === 'search'
                 ? 'Test Run Search'
-                : route.name === 'compare'
-                  ? 'Test Run Comparison (Diff)'
-                  : 'Game QA Analytics Dashboard'}
+                : route.name === 'trends'
+                  ? 'Performance Trends'
+                  : route.name === 'compare'
+                    ? 'Test Run Comparison (Diff)'
+                    : 'Game QA Analytics Dashboard'}
             </h1>
+            {(route.name === 'search' || route.name === 'trends') && (
+              <div className="ml-2 flex items-center rounded-lg border border-slate-700 bg-slate-950 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => navigateToSearch()}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 font-medium transition-colors cursor-pointer ${
+                    route.name === 'search'
+                      ? 'bg-slate-800 text-cyan-400 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Search size={13} /> テスト検索
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateToTrends()}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 font-medium transition-colors cursor-pointer ${
+                    route.name === 'trends'
+                      ? 'bg-slate-800 text-cyan-400 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <TrendingUp size={13} /> トレンド分析
+                </button>
+              </div>
+            )}
           </div>
           {route.name === 'dashboard' && selectedRun && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-400">
@@ -376,6 +408,18 @@ export default function App() {
             gameVersion: queryParams.gameVersion,
             platform: queryParams.platform,
             status: queryParams.status,
+          }}
+          onFilterChange={(filters) => updateQueryParams(filters, true)}
+        />
+      ) : route.name === 'trends' ? (
+        <TrendsPage
+          onOpenRun={(runId) => navigateToRun(runId)}
+          onCompareRuns={navigateToCompare}
+          initialFilters={{
+            testName: queryParams.testName,
+            platform: queryParams.platform,
+            gameVersion: queryParams.gameVersion,
+            range: queryParams.range,
           }}
           onFilterChange={(filters) => updateQueryParams(filters, true)}
         />

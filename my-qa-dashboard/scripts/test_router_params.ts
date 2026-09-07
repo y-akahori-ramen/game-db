@@ -100,6 +100,19 @@ const parsedRoot = parseRouteFromLocation('/', '');
 assert.equal(parsedRoot.route.name, 'search');
 console.log('✓ Root / parses as search route correctly.');
 
+// Test 6: Direct URL with pathname /trends
+const parsedTrendsPath = parseRouteFromLocation('/trends', '?range=14d&platform=PS5');
+assert.equal(parsedTrendsPath.route.name, 'trends');
+assert.equal(parsedTrendsPath.params.range, '14d');
+assert.equal(parsedTrendsPath.params.platform, 'PS5');
+console.log('✓ Pathname /trends parses route and trend params correctly.');
+
+// Test 7: Direct URL with query param ?view=trends
+const parsedTrendsQuery = parseRouteFromLocation('/', '?view=trends&testName=Level1_Playthrough');
+assert.equal(parsedTrendsQuery.route.name, 'trends');
+assert.equal(parsedTrendsQuery.params.testName, 'Level1_Playthrough');
+console.log('✓ Query ?view=trends parses route and testName param correctly.');
+
 console.log('\n========================================');
 console.log('All Router Params & Direct URL Parsing unit verification tests PASSED!');
 console.log('========================================');
