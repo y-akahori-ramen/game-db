@@ -19,6 +19,7 @@ export default function MemoryDiffChart({ timeline, peakDiffs, runAId, runBId }:
   const memB = timeline.map((d) => d.memB);
 
   const option = {
+    animation: false,
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',

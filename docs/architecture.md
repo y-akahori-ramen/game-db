@@ -11,13 +11,17 @@ Game QA Analytics Dashboard は、ゲーム開発における日々の自動テ�
 
 ### 1.2 コア設計思想
 - **クライアントサイド超高速分析 (DuckDB-WASM)**:
-  サーバー側で大容量メトリクスやログの集約処理を行わず、ブラウザ内の DuckDB-WASM 仮想ファイルシステムに生データ（CSV/JSON/ログ）を直接読み込み、クライアント端末の CPU/メモリを活用してミリ秒単位で SQL 集計・フィルタリングを実行します。
+  サーバー側で大容量メトリクスやログの集約処理を行わず、ブラウザ内の DuckDB-WASM 仮想ファイルシステムに生データ（CSV/JSON/ログ）を直接読み込み、クライアント端末の CPU/メモリを活用してミリ秒単位で SQL 集計・フィルタリングを実行します（No-Parquet 原則：UE 出力の生 CSV/JSON をそのまま処理）。
+- **複数ラン比較・時系列品質トレンド分析**:
+  2 つのテストランの FPS・メモリ推移を横並びで差分比較（回帰検知しきい値アラート付き）する機能や、長期的な合格率・FPS・メモリ消費の推移を俯瞰するトレンド分析をクライアント完結で提供します。
 - **完全自律型オンプレミス運用**:
-  社内 DMZ リバースプロキシ配下の Docker Compose（Nginx + OAuth2-Proxy + FastAPI + SQLite）により、社内 LAN 帯域（1Gbps〜10Gbps+）を最大限に活かした大容量動画・成果物の高速配信と安全なデータ保持を実現します。
+  社内 DMZ リバースプロキシ配下の Docker Compose（Nginx + OAuth2-Proxy + FastAPI + SQLite WAL）により、社内 LAN 帯域（1Gbps〜10Gbps+）を最大限に活かした大容量動画・成果物の高速配信と安全なデータ保持を実現します（旧 AWS クラウド構成は完全廃止）。
 - **大容量ファイル対応 (サイズ制限なし & ゼロコピー配信)**:
   数十GBを超えるゲームプレイキャプチャ動画やダンプファイルも、Nginx の `sendfile` および HTTP Range リクエスト対応により、ブラウザから即時シーク・ストリーミング再生が可能です。
+- **クライアントサイド成果物一括圧縮 (`client-zip`)**:
+  サーバーにアーカイブ生成負荷をかけず、ブラウザ上で直接ストリーミング形式の ZIP ファイルを生成・ダウンロード可能です。
 - **データ保全とストレージ自動防護**:
-  確定済みテスト結果の改ざん防止（409 Conflict）、ディスク空き容量監視に基づくアップロード遮断（507 Insufficient Storage）、保持期間を超過した大容量成果物のみを自動パージするクリーンアップ機構を備えます。
+  確定済みテスト結果の改ざん防止（409 Conflict / `--overwrite` 制御）、ディスク空き容量監視に基づくアップロード遮断（507 Insufficient Storage）、保持期間を超過した大容量成果物（動画・ダンプ）のみを自動パージするクリーンアップ機構を備えます。
 
 ---
 
@@ -28,8 +32,8 @@ Game QA Analytics Dashboard は、ゲーム開発における日々の自動テ�
 ```mermaid
 graph TD
     subgraph Clients ["クライアント (社内LAN / テスト端末 / CI)"]
-        Browser["Webブラウザ (QA / 開発者)<br/>- React 19 SPA<br/>- DuckDB-WASM エンジン<br/>- ECharts / LogTable"]
-        CLI["アップロード CLI (qa_upload.py)<br/>- 個人用 API キー認証<br/>- HTTP ストリーミング PUT"]
+        Browser["Webブラウザ (QA / 開発者)<br/>- React 19 SPA (Vite 8)<br/>- クライアントルーティング (useAppRouter)<br/>- DuckDB-WASM エンジン (セルフホスト)<br/>- 画面: Search / Compare / Trends / Media / Logs<br/>- 一括ZIPダウンロード (client-zip)"]
+        CLI["アップロード CLI (qa_upload.py)<br/>- デュアル送信 (オンプレHTTP / AWS S3)<br/>- 個人用 API キー認証 / Google PKCE<br/>- ffmpeg 自動 Web トランスコード"]
     end
 
     subgraph DMZ ["社内 DMZ ネットワーク"]
@@ -37,7 +41,7 @@ graph TD
     end
 
     subgraph OnPremHost ["オンプレミス Docker Compose 環境 (ポート 8080)"]
-        Nginx["内部 Nginx (リバースプロキシ & 静的/大容量配信)<br/>- / : SPA 静的アセット<br/>- /duckdb-wasm/ : WASM バイナリ (長期キャッシュ)<br/>- /data/runs/* : 成果物ゼロコピー直配信 (sendfile)<br/>- /api/upload/* : CLI アップロード (APIキー認証バイパス)<br/>- /api/* : Web API (OAuth2 保護)"]
+        Nginx["内部 Nginx (リバースプロキシ & 静的/大容量配信)<br/>- / : SPA 静的アセット<br/>- /duckdb-wasm/ : WASM バイナリ (長期キャッシュ)<br/>- /data/runs/* : 成果物ゼロコピー直配信 (sendfile/Range)<br/>- /api/upload/* : CLI アップロード (APIキー認証バイパス)<br/>- /api/* : Web API (OAuth2 保護)"]
 
         OAuthProxy["OAuth2-Proxy (Port 4180)<br/>- Google OIDC 認証<br/>- セッション Cookie 発行<br/>- 組織ドメイン制限"]
 
@@ -45,12 +49,14 @@ graph TD
             UploadApi["大容量ストリーミング保存 (aiofiles)<br/>+ 改ざん保護 (409) & クォータ (507)"]
             SearchApi["検索 API (/api/search)<br/>単一 Run 取得 (/api/runs/{id})"]
             KeyApi["個人用 API キー管理 (/api/keys)"]
+            StorageApi["ストレージ状態 (/api/storage/status)<br/>手動クリーンアップ (/api/storage/cleanup)"]
+            HealthApi["ヘルスチェック (/api/health)"]
             Cleanup["定期クリーンアップ (cleanup.py)"]
         end
 
         subgraph StorageArea ["永続化ボリューム (/data)"]
             SqliteDB[("SQLite WAL データベース<br/>/data/db/qa.db<br/>- test_runs<br/>- api_keys")]
-            RunsStorage[("成果物ストレージ<br/>/data/runs/{run_id}/<br/>- manifest.json<br/>- metrics CSV/JSON<br/>- UE ログ / 動画")]
+            RunsStorage[("成果物ストレージ<br/>/data/runs/{run_id}/<br/>- manifest.json (v2.0)<br/>- metrics CSV/JSON<br/>- UE ログ / 動画 / 画像 / ダンプ")]
         end
     end
 
@@ -64,8 +70,8 @@ graph TD
     Nginx <-->|"3. 認証確認 (auth_request)"| OAuthProxy
     OAuthProxy <-->|"4. OIDC 認証 / 検証"| GoogleOIDC
     Nginx -->|"5. SPA & WASM 配信"| Browser
-    Nginx -->|"6. 成果物・動画ゼロコピー配信 (sendfile)"| RunsStorage
-    Nginx -->|"7. 検索・キー管理 API プロキシ"| SearchApi
+    Nginx -->|"6. 成果物・動画ゼロコピー配信 (sendfile/Range)"| RunsStorage
+    Nginx -->|"7. 検索・キー・ストレージ API プロキシ"| SearchApi
 
     %% CLI アップロードフロー
     CLI -->|"APIキー付き HTTP ストリーミング PUT"| DMZProxy
@@ -82,17 +88,57 @@ graph TD
 ## 3. 主要コンポーネント仕様
 
 ### 3.1 フロントエンド (`my-qa-dashboard/`)
-- **技術スタック**: React 19, TypeScript, Vite 8, Tailwind CSS v4, ECharts (`echarts-for-react`), Lucide React
+- **技術スタック**: React 19, TypeScript, Vite 8, Tailwind CSS v4, ECharts (`echarts-for-react`), Lucide React, `client-zip`
 - **DuckDB-WASM データエンジン (`src/hooks/useDuckDB.ts`)**:
   - DuckDB-WASM 公式バイナリを `public/duckdb-wasm/` にセルフホストし、同一オリジンから Blob Worker 経由で初期化。
   - リモートデータ（Nginx から配信される CSV/JSON）を `fetch` して `registerFileBuffer` で DuckDB 仮想ファイルシステムに登録。
-  - `read_csv_auto` や `read_json_auto` を用いて、ブラウザ上で直接 SQL クエリ（`executeQuery<T>()`）を実行。
+  - `read_csv_auto` や `read_json_auto` を拡張子に応じて自動選択し、ブラウザ上で直接 SQL クエリ（`executeQuery<T>()`）を実行。
+  - **並行セッション保護**: 比較画面等で同一ランまたは並行セッションが実行された際も、セッション一意のファイル名を割り当てることでテーブル名・ファイル名の衝突を防止。クエリ完了後は `dropFile` により仮想メモリを自動解放。
 - **画面機能**:
-  - **SearchPage**: 日付範囲、プラットフォーム、ゲームバージョン、テスト名、成否結果による複合検索とソート・ページネーション。
-  - **FpsChart / MemoryChart**: テスト実行中のフレームレートおよびメモリ使用量の推移をミリ秒単位で可視化。
-  - **LogTable**: Unreal Engine ログの全文検索・レベル別フィルタ。ローカル UE ログファイルの手動インポート・解析対応（`ueLogParser.ts`）。
-  - **VideoPlayer**: HTTP Range リクエストによる長時間の高解像度キャプチャ動画のシーク再生。
-  - **ApiKeyModal**: CLI アップロード用の個人用 API キー発行・一覧・失効管理。
+  - **SearchPage (`SearchPage.tsx`)**:
+    - 日付範囲、プラットフォーム、ゲームバージョン、テスト名、成否結果（PASSED / FAILED / ABORTED）による複合検索。
+    - 各カラムでのソート、フィルタのリセット。
+    - チェックボックスによる 2 件の Run 選択と、ワンクリックでの直接比較画面遷移。
+  - **ComparePage (`ComparePage.tsx`)**:
+    - 2 つのテスト Run（Run A vs Run B）の横並び詳細比較。
+    - **FpsDiffChart**: フレームレートおよびフレームスレッド時間の差分カーブ、平均/最低 FPS の変化量（Δ）、統計サマリの可視化。
+    - **MemoryDiffChart**: メモリ使用量のカテゴリ別差分増減の可視化。
+    - **アーティファクト比較**: 成果物ファイル構成の差分一覧。
+    - **回帰検知しきい値アラート (`config/thresholds.ts`)**: FPS 低下率やメモリ急増が許容しきい値を超えた場合の警告バッジ表示。
+    - **Run 入れ替え & URL 共有**: Run A と Run B の即時スワップ、比較状態の URL 共有。
+  - **TrendsPage (`TrendsPage.tsx`)**:
+    - 複数 Run を時系列で横断分析する品質トレンドダッシュボード。
+    - 期間絞り込み（直近 7 日 / 14 日 / 30 日 / 90 日 / 全期間）およびプラットフォーム・バージョン・テスト名フィルタ。
+    - KPI サマリ（合格率、平均 FPS、ピークメモリ、総テスト回数、前期間比の増減インジケータ）。
+    - 日別の成否積み上げ棒グラフ、平均 FPS 推移折れ線グラフ、ピークメモリ推移グラフ。
+    - トレンドチャートからの個別 Run 詳細または 2 ラン比較への直接リンク。
+  - **FpsChart / MemoryChart (`FpsChart.tsx`, `MemoryChart.tsx`)**:
+    - テスト走行中のフレームレートおよびメモリ推移をミリ秒単位で描画。
+    - 10 万データ点を超える長時間ログに対する仮想スクロール・ダウンサンプリング。
+    - **タイムライン双方向同期 (`utils/timeHelpers.ts`)**: チャートホバー・クリック位置と `MediaViewer` の動画再生位置（秒）をミリ秒精度で完全連動。
+  - **LogTable (`LogTable.tsx`)**:
+    - Unreal Engine ログの全文検索・レベル別フィルタ（INFO / WARN / ERROR / FATAL）。
+    - 仮想スクロールによる数万行のログの高速スクロール。
+    - ローカルログファイルの手動インポート・解析対応（`ueLogParser.ts`）。
+  - **MediaViewer (`MediaViewer.tsx`)**:
+    - 動画およびスクリーンショット画像の統合メディアビューア。
+    - **動画プレイヤー**: HTTP Range リクエストによる長時間の高解像度キャプチャ動画のシーク再生、再生速度調整、フルスクリーン表示、チャートとのタイムライン双方向同期。
+    - **スクリーンショットギャラリー**: 画像の拡大・縮小・パン移動・回転・リセット機能。
+    - グリッド表示 / リスト表示切り替え、メディア種別フィルタ（動画 / 静止画）。
+  - **ArtifactsPanel (`ArtifactsPanel.tsx`)**:
+    - Run に含まれる全成果物（FPS、Memory、ログ、動画、スクリーンショット、クラッシュダンプ、トレース、レポート等）の一覧表示とカテゴリ別フィルタ。
+    - ブラウザ対応形式のインラインプレビュー（画像・動画・テキスト）。
+    - **ブラウザ内一括 ZIP ダウンロード (`client-zip`)**: サーバー側に ZIP 生成負荷を一切かけず、ブラウザのメモリ上でストリーミング圧縮して一括保存。
+  - **AccessKeyModal (`AccessKeyModal.tsx`)**:
+    - CLI アップロード用の個人用 API キー発行・一覧・失効管理。
+    - 発行時トークンの 1 回限り表示、クリップボードコピー、CLI 用環境変数形式（`export QA_API_KEY=...`）のワンクリックコピー。
+- **クライアントサイドルーティング & ディープリンク (`router/useAppRouter.ts`)**:
+  - HTML5 History API（`pushState` / `popstate`）による完全クライアントルーティング。
+  - ルート定義: `/`（検索）、`/trends`（トレンド）、`/runs/:runId`（詳細ダッシュボード）、`/compare?a=...&b=...`（比較）。
+  - URL クエリパラメータ同期: タイムライン秒数（`t`）、選択メディア（`media`）、ログ選択行（`log`）、検索条件、表示タブ等の状態を URL に反映し、チーム間での 1 クリック共有（Share ボタン）を実現。
+- **パフォーマンス・最適化設計**:
+  - `React.lazy` と `Suspense` によるヘビーコンポーネント（ComparePage, TrendsPage, FpsChart, MemoryChart, AccessKeyModal）のコード分割。
+  - Vite / Rollup によるベンダーチャンク分割（`vendor-duckdb`, `vendor-echarts`, `vendor-virtual`）。
 - **動作モード切り替え**:
   - `VITE_USE_MOCK=true`（デフォルト）: 完全ローカル開発モード。ログイン認証をバイパスし、`public/mock_data/runs.json` および `public/sample_data/` のサンプルデータで動作。
   - `VITE_USE_MOCK=false`: 社内本番結合モード。FastAPI バックエンドおよび OAuth2-Proxy と連携。
@@ -118,16 +164,23 @@ graph TD
   - Google Cloud Console で発行した OAuth 2.0 Web アプリケーション認証情報を使用。
   - `--email-domain` による自社ドメイン（例: `@company.com`）制限。
   - 認証成功時にセッション暗号化 Cookie をクライアントへ発行。
+  - バックエンドへ認証済みメールアドレス（`X-Auth-Request-Email`）をヘッダー転送。
 
 ### 3.4 バックエンド API (`onprem/backend/`)
 - **技術スタック**: Python >= 3.10, FastAPI, Uvicorn, SQLite3, aiofiles
 - **API エンドポイント仕様**:
-  - `PUT /api/upload/runs/{run_id}/{file_name}`:
+  - `GET /api/health`:
+    - サービスの稼働状態および現在時刻の返却（ヘルスチェック用）。
+  - `GET /api/storage/status`:
+    - ディスク空き容量、使用量、クォータ閾値（最小空き率、最小空きバイト数）の返却。
+  - `POST /api/storage/cleanup`:
+    - 保持期間（`days`）、ドライラン（`dry_run`）、最小対象サイズ（`min_size_mb`）を指定した大容量アーティファクトの手動クリーンアップ実行（要 API キー認証）。
+  - `PUT /api/upload/runs/{run_id}/{file_name}` (および POST):
     - 大容量ファイルストリーミング受信。`aiofiles` によりイベントループを阻害せずディスクに保存。
     - **改ざん保護**: 対象 Run に `manifest.json` が既に存在する場合、`?overwrite=true` クエリパラメータがない限り `HTTP 409 Conflict` を返却。
     - **ストレージクォータ監視**: ディスク空き容量が 10% 未満または 1GB 未満の場合、`HTTP 507 Insufficient Storage` で拒絶。
     - **自動インデックス**: `manifest.json` の保存完了を検知すると、自動的に内容をパースして SQLite の `test_runs` テーブルへ登録・更新。
-  - `POST /api/search`:
+  - `POST /api/search` および `GET /api/search`:
     - SQLite `test_runs` テーブルに対する複合条件検索（日付範囲、プラットフォーム、バージョン、テスト名、ステータス、ページネーション）。
   - `GET /api/runs/{run_id}`:
     - 指定した Run の詳細メタデータおよび各成果物 URL の返却。
@@ -138,14 +191,35 @@ graph TD
   - 成果物のうち、大容量の動画（`.mp4`）やダンプ（`.dmp`）を安全に削除。
   - CSV メトリクス、ログファイル、`manifest.json`、および SQLite インデックスレコードは恒久保持。
   - 削除された動画に対応する SQLite の `video_url` カラムをクリア。
+- **環境変数設定**:
+  - `STORAGE_PATH`: ストレージルートパス（デフォルト: `/data`）
+  - `DB_PATH`: SQLite データベースファイルパス（デフォルト: `/data/db/qa.db`）
+  - `MIN_DISK_FREE_PERCENT`: 最小空き容量パーセント（デフォルト: `10.0`）
+  - `MIN_DISK_FREE_BYTES`: 最小空き容量バイト数（デフォルト: `1073741824` = 1GB）
+  - `ALLOW_ANONYMOUS_UPLOAD`: ローカル開発・テスト用の認証なしアップロード許可フラグ（デフォルト: `false`）
+  - `ALLOWED_ORIGINS`: CORS 許可オリジンリスト
 
 ### 3.5 アップロード CLI (`cli/qa_upload.py`)
 - **機能**:
   - テスト実行マシンや CI/CD パイプラインからワンアクションでテスト結果を送信。
-  - ディレクトリ内の成果物を自動スキャンし、メトリクス（CSV/JSON）、ログ、動画、スクリーンショット等を分類して `manifest.json` を生成。
-  - 大容量ファイルの HTTP ストリーミング PUT 送信。
-  - ffmpeg による Web 最適化動画（H.264/AAC `faststart`）の自動トランスコード機能。
-  - 確定済み Run を再実行・上書きするための `--overwrite` フラグ対応。
+  - **サブコマンド**:
+    - `upload`: 成果物ディレクトリの自動スキャン、動画トランスコード、成果物送信、Manifest 作成・インデックス。
+    - `login`: Google OAuth 2.0 PKCE 認証によるブラウザログイン。トークンを `~/.config/game-qa/token.json` にローカル保存し、次回以降自動リフレッシュ。
+  - **デュアルアップロード先対応**:
+    - **オンプレミス HTTP ストリーミング (`--server-url` / `QA_SERVER_URL`)**: 個人用 API キー（`--api-key` / `QA_API_KEY`）を用いた HTTP PUT ストリーミング。
+    - **AWS S3 直接アップロード (`--s3-bucket` / `S3_BUCKET`)**: Google アカウント認証トークンを用いた AWS STS `AssumeRoleWithWebIdentity` による S3 アップロード（ハイブリッド/クラウド保存用）。
+  - **動画自動トランスコード**:
+    - ffmpeg を検知し、Web ブラウザ再生に最適化された動画（H.264 / AAC / `faststart` 付き `capture_web.mp4`）を自動生成（`--skip-transcode`, `--force-transcode` 対応）。
+  - **成果物自動分類 (Manifest Schema v2.0)**:
+    - 成果物を 9 種別（fps, memory, log, video, screenshot, crashdump, trace, report, other）に自動分類。
+  - **確定済み Run 上書き対応**:
+    - サーバー側改ざん保護（409 Conflict）を回避して再実行データを登録するための `--overwrite` フラグ。
+
+### 3.6 旧 AWS クラウドインフラ (`infra/`) の廃止状況
+- **ステータス: 廃止（Deprecated / Retired）**
+- 初期のプロトタイプで使用されていた AWS CDK スタック（DynamoDB 検索インデックス、CloudFront + S3 配信、IAM 構成）は完全に廃止されました。
+- 現在の本番構成はオンプレミス Docker Compose（Nginx + FastAPI + SQLite WAL）に完全移行しており、クラウド側の月額コスト・外部依存は不要となっています。
+- 過去に AWS アカウントへデプロイしたリソースの破棄手順は [`infra/README.md`](file:///Volumes/DataDrive/programs/game-db/infra/README.md) に明記されています。
 
 ---
 
@@ -221,19 +295,22 @@ graph TD
 │   └── qa.db-shm       # 共有メモリファイル
 └── runs/
     └── {run_id}/       # 各 Run のアーティファクト格納ディレクトリ
-        ├── manifest.json       # テストメタデータおよび成果物一覧
+        ├── manifest.json       # テストメタデータおよび成果物一覧 (Schema v2.0)
         ├── metrics_fps.csv     # フレームレート時系列 CSV
         ├── metrics_memory.csv  # メモリ使用量時系列 CSV
         ├── ue_output.log       # Unreal Engine ログ
         ├── capture.mp4         # オリジナル録画動画
-        └── capture_web.mp4     # Web 再生用トランスコード済み動画
+        ├── capture_web.mp4     # Web 再生用トランスコード済み動画
+        ├── screenshot_001.png  # テストキャプチャ画像
+        └── crash.dmp           # クラッシュダンプ (障害時のみ)
 ```
 
-### 5.2 `manifest.json` 仕様
-各 Run の成果物ディレクトリ直下に格納される標準メタデータフォーマットです。
+### 5.2 `manifest.json` 仕様 (Schema v2.0)
+各 Run の成果物ディレクトリ直下に格納される標準メタデータフォーマットです。トップレベルにサマリ値と成果物一覧をフラットに保持します。
 
 ```json
 {
+  "schema_version": "2.0",
   "run_id": "run-20260907-001",
   "executed_at": "2026-09-07T12:00:00Z",
   "game_version": "v1.2.0",
@@ -243,32 +320,35 @@ graph TD
   "device_model": "PlayStation 5 CFI-1200",
   "triggered_by": "nightly",
   "duration_seconds": 300.0,
+  "avg_fps": 59.8,
+  "min_fps": 45.2,
+  "peak_memory_mb": 4250.0,
   "total_size_bytes": 173012992,
-  "summary": {
-    "avg_fps": 59.8,
-    "min_fps": 45.2,
-    "peak_memory_mb": 4250.0
-  },
   "artifacts": [
     {
+      "file_name": "metrics_fps.csv",
       "type": "fps",
-      "path": "metrics_fps.csv",
       "size_bytes": 1048576
     },
     {
+      "file_name": "metrics_memory.csv",
       "type": "memory",
-      "path": "metrics_memory.csv",
       "size_bytes": 524288
     },
     {
+      "file_name": "ue_output.log",
       "type": "log",
-      "path": "ue_output.log",
       "size_bytes": 15728640
     },
     {
+      "file_name": "capture_web.mp4",
       "type": "video",
-      "path": "capture_web.mp4",
       "size_bytes": 21474836480
+    },
+    {
+      "file_name": "screenshot_001.png",
+      "type": "screenshot",
+      "size_bytes": 2097152
     }
   ]
 }
@@ -289,12 +369,12 @@ sequenceDiagram
     participant Storage as 成果物ストレージ (/data/runs/)
     participant DB as SQLite (qa.db)
 
-    Note over CI: テスト完了・成果物準備
+    Note over CI: テスト完了・成果物準備 (ffmpeg による自動 Web トランスコード含む)
     CI->>Nginx: PUT /api/upload/runs/{run_id}/{file} (Authorization: Bearer <key>)
     Nginx->>Backend: ダイレクトプロキシ (proxy_request_buffering off)
     Backend->>DB: API キーハッシュ照合・権限確認
-    Backend->>Backend: 改ざんチェック (manifest.json 存在時は 409)
-    Backend->>Backend: 容量クォータチェック (空き10%未満で 507)
+    Backend->>Backend: 改ざんチェック (manifest.json 存在時は 409、?overwrite=true で回避)
+    Backend->>Backend: 容量クォータチェック (空き10%未満または1GB未満で 507)
     Backend->>Storage: aiofiles による非同期ストリーミング保存
     Backend-->>CI: 200 OK
 
@@ -302,12 +382,12 @@ sequenceDiagram
     CI->>Nginx: PUT /api/upload/runs/{run_id}/manifest.json
     Nginx->>Backend: プロキシ
     Backend->>Storage: manifest.json 保存
-    Backend->>Backend: manifest パース
+    Backend->>Backend: manifest パース (Schema v2.0)
     Backend->>DB: INSERT / REPLACE INTO test_runs (インデックス即時更新)
     Backend-->>CI: 200 OK (アップロード完了)
 ```
 
-### 6.2 Web 閲覧・分析フロー (ブラウザ)
+### 6.2 Web 閲覧・分析・比較フロー (ブラウザ)
 
 ```mermaid
 sequenceDiagram
@@ -331,18 +411,32 @@ sequenceDiagram
 
     User->>DuckDB: ブラウザ内ワーカー起動・初期化 (ローカル実行)
 
+    %% 検索フロー
     User->>Nginx: POST /api/search (フィルタ条件送信)
     Nginx->>Backend: プロキシ
     Backend->>DB: SELECT * FROM test_runs WHERE ... ORDER BY executed_at DESC LIMIT ...
     DB-->>Backend: 検索結果
     Backend-->>User: テスト Run 一覧 JSON
 
-    Note over User: 任意の Run をクリックして詳細画面へ
+    %% 詳細閲覧フロー
+    Note over User: 任意の Run をクリックして詳細画面 (/runs/{id}) へ
     User->>Nginx: GET /data/runs/{run_id}/metrics_fps.csv
     Nginx-->>User: sendfile によるゼロコピー高速転送
-    User->>DuckDB: registerFileBuffer('metrics_fps.csv')
-    User->>DuckDB: executeQuery("SELECT * FROM read_csv_auto('metrics_fps.csv')")
+    User->>DuckDB: registerFileBuffer('run_fps.csv')
+    User->>DuckDB: executeQuery("SELECT * FROM read_csv_auto('run_fps.csv')")
     DuckDB-->>User: 集計結果・グラフ描画 (ECharts)
+
+    %% タイムライン同期フロー
+    Note over User: FPS チャート上で任意のスパイクをクリック
+    User->>User: MediaViewer の動画再生位置 (currentTime) を即時シーク
+
+    %% 比較フロー
+    Note over User: SearchPage で 2 件選択し「Compare」クリック (/compare?a=...&b=...)
+    User->>Nginx: GET /data/runs/{run_A}/metrics_fps.csv & /data/runs/{run_B}/metrics_fps.csv
+    Nginx-->>User: CSV 転送
+    User->>DuckDB: セッション一意名でバッファ登録 & 差分クエリ実行 (diffQueries.ts)
+    DuckDB-->>User: FpsDiffChart / MemoryDiffChart 描画 (回帰検知アラート表示)
+    User->>DuckDB: dropFile で一時ファイル自動破棄
 ```
 
 ---
@@ -351,12 +445,12 @@ sequenceDiagram
 
 ### 7.1 個人用 API キーのライフサイクル
 1. **発行**:
-   - ユーザーがブラウザでダッシュボードにログイン後、「API Keys」モーダルからキー名を入力して作成。
+   - ユーザーがブラウザでダッシュボードにログイン後、「Access Keys」モーダルからキー名を入力して作成。
    - バックエンドが暗号学的に安全なランダムトークン（`gqa_live_` + 40文字hex）を生成。
    - トークンの SHA-256 ハッシュ値を SQLite の `api_keys` テーブルに保存。
    - 平文トークンは発行時のモーダルに一度だけ表示され、サーバー上には保存されない。
 2. **利用**:
-   - CLI または HTTP クライアントの `Authorization: Bearer <token>` ヘッダーとして送信。
+   - CLI または HTTP クライアントの `Authorization: Bearer <token>` ヘッダー（または `X-API-Key`）として送信。
    - バックエンドは受信したトークンの SHA-256 ハッシュを計算し、`api_keys` テーブルを照合して認証。
 3. **失効**:
    - Web 画面の一覧から不要になったキーを削除（`DELETE /api/keys/{key_id}`）。
@@ -366,7 +460,8 @@ sequenceDiagram
 1. **アップロード遮断（クォータ保護）**:
    - `/data` パーティションの空き容量が **10% 未満** または **1GB 未満** に達した時点で、アップロード API は新規受付を直ちに停止し `HTTP 507 Insufficient Storage` を返却。
 2. **期限切れアーティファクトの自動パージ (`cleanup.py`)**:
-   - cron または定期タスクにより `python cleanup.py --days <日数>` を実行。
+   - 定期バッチ（cron または定期タスク）により `python cleanup.py --days <日数>` を実行。
+   - または管理者権限による Web API 呼び出し `POST /api/storage/cleanup?days=30` から手動トリガー。
    - 保持期間（例: 30日）を過ぎた Run を検索し、成果物ディレクトリ内の容量の大きい動画（`.mp4`）やダンプ（`.dmp`）を物理削除。
    - 軽量かつ分析価値の高い CSV メトリクス、ログ、`manifest.json` は恒久保持。
    - SQLite `test_runs` テーブルの `video_url` を NULL に更新し、ダッシュボード上の動画プレイヤーを安全に非表示化。

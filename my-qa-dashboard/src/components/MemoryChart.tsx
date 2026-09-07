@@ -115,6 +115,7 @@ function MemoryChart({
     }));
 
     return {
+      animation: false,
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',

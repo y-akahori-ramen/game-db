@@ -20,6 +20,7 @@ export default function FpsDiffChart({ data, runAId, runBId }: Props) {
   const deltaGpu = data.map((d) => d.deltaGpuFrame);
 
   const option = {
+    animation: false,
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',

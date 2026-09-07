@@ -156,6 +156,7 @@ export default function TrendsPage({
     const minFpsData = trendPoints.map((p) => p.minFps);
 
     return {
+      animation: false,
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
@@ -253,6 +254,7 @@ export default function TrendsPage({
     const memData = trendPoints.map((p) => p.peakMemoryMb);
 
     return {
+      animation: false,
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
@@ -325,6 +327,7 @@ export default function TrendsPage({
     const passRates = dailyStats.map((d) => d.passRate);
 
     return {
+      animation: false,
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',

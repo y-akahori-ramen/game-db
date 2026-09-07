@@ -50,6 +50,7 @@ function FpsChart({ data, isFullscreen = false, currentTime, onSeek }: Props) {
     }
 
     return {
+      animation: false,
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',

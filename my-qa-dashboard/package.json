@@ -10,7 +10,7 @@
     "prebuild": "npm run copy:duckdb",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --experimental-strip-types scripts/test_log_analysis.ts && node --experimental-strip-types scripts/test_media_viewer.ts && node --experimental-strip-types scripts/test_router_params.ts && node --experimental-strip-types scripts/test_duckdb_queue.ts && node --experimental-strip-types scripts/test_trends.ts && node --experimental-strip-types scripts/test_timeline_sync.ts && node --experimental-strip-types scripts/test_compare_concurrency.ts",
+    "test": "node --experimental-strip-types scripts/test_log_analysis.ts && node --experimental-strip-types scripts/test_media_viewer.ts && node --experimental-strip-types scripts/test_router_params.ts && node --experimental-strip-types scripts/test_duckdb_queue.ts && node --experimental-strip-types scripts/test_trends.ts && node --experimental-strip-types scripts/test_timeline_sync.ts && node --experimental-strip-types scripts/test_compare_concurrency.ts && node --experimental-strip-types scripts/test_chart_animation.ts",
     "preview": "vite preview"
   },
   "dependencies": {
