@@ -5,8 +5,16 @@ interface SearchApiRun {
     gameVersion: string;
     platform: string;
     testName: string;
-    status: 'PASSED' | 'FAILED';
+    status: 'PASSED' | 'FAILED' | 'ABORTED';
     timestamp: string;
+    avgFps?: number;
+    minFps?: number;
+    peakMemoryMb?: number;
+    durationSeconds?: number;
+    deviceModel?: string;
+    triggeredBy?: string;
+    totalSizeBytes?: number;
+    updatedAt?: string;
     fpsDataUrl?: string;
     memoryDataUrl?: string;
     logsDataUrl?: string;

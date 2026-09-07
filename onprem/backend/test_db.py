@@ -49,6 +49,10 @@ class TestSQLiteDatabase(unittest.TestCase):
             avg_fps=59.8,
             min_fps=45.2,
             peak_memory_mb=4200.5,
+            duration_seconds=300.5,
+            device_model="PlayStation 5 CFI-1200",
+            triggered_by="nightly",
+            total_size_bytes=1048576,
             fps_data_url="/data/runs/run-001/fps_metrics.csv",
             video_url="/data/runs/run-001/capture.mp4",
         )
@@ -64,6 +68,10 @@ class TestSQLiteDatabase(unittest.TestCase):
         self.assertEqual(run["avgFps"], 59.8)
         self.assertEqual(run["minFps"], 45.2)
         self.assertEqual(run["peakMemoryMb"], 4200.5)
+        self.assertEqual(run["durationSeconds"], 300.5)
+        self.assertEqual(run["deviceModel"], "PlayStation 5 CFI-1200")
+        self.assertEqual(run["triggeredBy"], "nightly")
+        self.assertEqual(run["totalSizeBytes"], 1048576)
         self.assertEqual(run["fpsDataUrl"], "/data/runs/run-001/fps_metrics.csv")
         self.assertEqual(run["videoUrl"], "/data/runs/run-001/capture.mp4")
         self.assertEqual(len(run["artifacts"]), 2)
@@ -125,11 +133,20 @@ class TestSQLiteDatabase(unittest.TestCase):
             status="PASSED",
             artifacts=[],
         )
+        db.upsert_run(
+            run_id="run-d",
+            executed_at="2026-09-08T10:00:00Z",
+            game_version="1.2.0",
+            platform="Windows",
+            test_name="CrashRecovery",
+            status="ABORTED",
+            artifacts=[],
+        )
 
         # 1. Order by executed_at DESC by default
         all_runs = db.search_runs()
-        self.assertEqual(len(all_runs), 3)
-        self.assertEqual([r["runId"] for r in all_runs], ["run-c", "run-b", "run-a"])
+        self.assertEqual(len(all_runs), 4)
+        self.assertEqual([r["runId"] for r in all_runs], ["run-d", "run-c", "run-b", "run-a"])
 
         # 2. Filter by platform
         ps5_runs = db.search_runs(platform="PS5")
@@ -140,6 +157,10 @@ class TestSQLiteDatabase(unittest.TestCase):
         failed_runs = db.search_runs(status="FAILED")
         self.assertEqual(len(failed_runs), 1)
         self.assertEqual(failed_runs[0]["runId"], "run-b")
+
+        aborted_runs = db.search_runs(status="ABORTED")
+        self.assertEqual(len(aborted_runs), 1)
+        self.assertEqual(aborted_runs[0]["runId"], "run-d")
 
         # 4. Filter by test_name substring
         boss_runs = db.search_runs(test_name="BossFight")
@@ -153,11 +174,11 @@ class TestSQLiteDatabase(unittest.TestCase):
         # 6. Pagination
         page_1 = db.search_runs(limit=1, offset=0)
         self.assertEqual(len(page_1), 1)
-        self.assertEqual(page_1[0]["runId"], "run-c")
+        self.assertEqual(page_1[0]["runId"], "run-d")
 
         page_2 = db.search_runs(limit=1, offset=1)
         self.assertEqual(len(page_2), 1)
-        self.assertEqual(page_2[0]["runId"], "run-b")
+        self.assertEqual(page_2[0]["runId"], "run-c")
 
     def test_api_key_lifecycle(self):
         # 1. Create key

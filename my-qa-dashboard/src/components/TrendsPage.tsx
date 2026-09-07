@@ -3,6 +3,7 @@ import ReactECharts from 'echarts-for-react';
 import {
   Activity,
   AlertCircle,
+  AlertTriangle,
   ArrowDownRight,
   ArrowLeftRight,
   ArrowUpRight,
@@ -817,13 +818,19 @@ export default function TrendsPage({
                         <td className="py-2.5 px-3">{run.platform}</td>
                         <td className="py-2.5 px-3 text-slate-200">{run.testName}</td>
                         <td className="py-2.5 px-3">
-                          {run.status === 'PASSED' ? (
+                          {run.status === 'PASSED' && (
                             <span className="inline-flex items-center gap-1 rounded bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-400">
                               <CheckCircle2 size={12} /> PASSED
                             </span>
-                          ) : (
+                          )}
+                          {run.status === 'FAILED' && (
                             <span className="inline-flex items-center gap-1 rounded bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400">
                               <XCircle size={12} /> FAILED
+                            </span>
+                          )}
+                          {run.status === 'ABORTED' && (
+                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-400">
+                              <AlertTriangle size={12} /> ABORTED
                             </span>
                           )}
                         </td>

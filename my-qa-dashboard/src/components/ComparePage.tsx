@@ -219,13 +219,19 @@ export default function ComparePage({
                   <h3 className="text-base font-bold text-slate-100">{runA.runId}</h3>
                   <p className="text-xs text-slate-400 font-mono mt-0.5">{runA.testName}</p>
                 </div>
-                {runA.status === 'PASSED' ? (
+                {runA.status === 'PASSED' && (
                   <span className="inline-flex items-center gap-1 rounded bg-green-500/15 px-2 py-0.5 text-xs text-green-400 font-medium">
                     <CheckCircle2 size={12} /> PASSED
                   </span>
-                ) : (
+                )}
+                {runA.status === 'FAILED' && (
                   <span className="inline-flex items-center gap-1 rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-400 font-medium">
                     <XCircle size={12} /> FAILED
+                  </span>
+                )}
+                {runA.status === 'ABORTED' && (
+                  <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-xs text-amber-400 font-medium">
+                    <AlertTriangle size={12} /> ABORTED
                   </span>
                 )}
               </div>
@@ -255,13 +261,19 @@ export default function ComparePage({
                   <h3 className="text-base font-bold text-slate-100">{runB.runId}</h3>
                   <p className="text-xs text-slate-400 font-mono mt-0.5">{runB.testName}</p>
                 </div>
-                {runB.status === 'PASSED' ? (
+                {runB.status === 'PASSED' && (
                   <span className="inline-flex items-center gap-1 rounded bg-green-500/15 px-2 py-0.5 text-xs text-green-400 font-medium">
                     <CheckCircle2 size={12} /> PASSED
                   </span>
-                ) : (
+                )}
+                {runB.status === 'FAILED' && (
                   <span className="inline-flex items-center gap-1 rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-400 font-medium">
                     <XCircle size={12} /> FAILED
+                  </span>
+                )}
+                {runB.status === 'ABORTED' && (
+                  <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-xs text-amber-400 font-medium">
+                    <AlertTriangle size={12} /> ABORTED
                   </span>
                 )}
               </div>

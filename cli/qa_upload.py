@@ -57,7 +57,7 @@ except ImportError:
     NoCredentialsError = Exception  # type: ignore[assignment]
     ProfileNotFound = Exception  # type: ignore[assignment]
 
-RESULT_CHOICES = ("PASSED", "FAILED")
+RESULT_CHOICES = ("PASSED", "FAILED", "ABORTED")
 
 # CloudFront single object cache / maximum file limit: 30 GiB
 MAX_SINGLE_FILE_SIZE_BYTES = 30 * 1024 * 1024 * 1024
@@ -606,6 +606,19 @@ def parse_args() -> argparse.Namespace:
         help="Average FPS for the test run.",
     )
     upload.add_argument(
+        "--duration",
+        type=float,
+        help="Test run duration in seconds.",
+    )
+    upload.add_argument(
+        "--device-model",
+        help="Hardware/device model name (e.g. 'PS5 CFI-1200', 'RTX 4080').",
+    )
+    upload.add_argument(
+        "--triggered-by",
+        help="Trigger type (e.g. 'nightly', 'pr_check', 'manual').",
+    )
+    upload.add_argument(
         "--role-arn",
         help="IAM Role ARN to assume via Google Web Identity (env: GAME_QA_UPLOAD_ROLE_ARN).",
     )
@@ -1088,7 +1101,8 @@ def build_manifest(
         }
         for u in sorted_uploads
     ]
-    return {
+    total_size_bytes = sum(u.local_path.stat().st_size for u in uploads)
+    manifest: dict[str, Any] = {
         "schema_version": "2.0",
         "run_id": args.run_id,
         "executed_at": args.executed_at,
@@ -1097,8 +1111,16 @@ def build_manifest(
         "test_name": args.test_name,
         "result": args.result,
         "avg_fps": args.avg_fps,
+        "total_size_bytes": total_size_bytes,
         "artifacts": artifacts,
     }
+    if getattr(args, "duration", None) is not None:
+        manifest["duration_seconds"] = args.duration
+    if getattr(args, "device_model", None):
+        manifest["device_model"] = args.device_model
+    if getattr(args, "triggered_by", None):
+        manifest["triggered_by"] = args.triggered_by
+    return manifest
 
 
 def upload_manifest(

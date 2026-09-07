@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { ChangeEvent } from 'react';
 import {
   Activity,
+  AlertTriangle,
   ArrowLeft,
   Check,
   CheckCircle2,
@@ -366,13 +367,19 @@ export default function App() {
               <span>
                 Platform: <span className="text-slate-200">{selectedRun.platform}</span>
               </span>
-              {selectedRun.status === 'PASSED' ? (
+              {selectedRun.status === 'PASSED' && (
                 <span className="inline-flex items-center gap-1 rounded bg-green-500/15 px-2 py-0.5 text-green-400 font-medium text-xs">
                   <CheckCircle2 size={14} /> PASSED
                 </span>
-              ) : (
+              )}
+              {selectedRun.status === 'FAILED' && (
                 <span className="inline-flex items-center gap-1 rounded bg-red-500/15 px-2 py-0.5 text-red-400 font-medium text-xs">
                   <XCircle size={14} /> FAILED
+                </span>
+              )}
+              {selectedRun.status === 'ABORTED' && (
+                <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-amber-400 font-medium text-xs">
+                  <AlertTriangle size={14} /> ABORTED
                 </span>
               )}
 

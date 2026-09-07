@@ -118,7 +118,7 @@ export interface TrendDataPoint {
   gameVersion: string;
   platform: string;
   testName: string;
-  status: 'PASSED' | 'FAILED';
+  status: 'PASSED' | 'FAILED' | 'ABORTED';
   avgFps: number | null;
   minFps: number | null;
   peakMemoryMb: number | null;

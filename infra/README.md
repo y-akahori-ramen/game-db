@@ -1,7 +1,7 @@
 # Game QA Dashboard CDK app [DEPRECATED / RETIRED]
 
 > **警告 / WARNING: 本 CDK スタックは廃止（Retired）されました**  
-> `docs/architecture-improvement-plan.md` (Phase 3) に基づき、検索インデックスは AWS DynamoDB からオンプレミス組み込みの **SQLite (WALモード)** へ完全に移行しました。
+> 検索インデックスは AWS DynamoDB からオンプレミス組み込みの **SQLite (WALモード)** へ完全に移行しました。
 > 現在の本番運用環境（Docker Compose）では AWS クラウドリソース（DynamoDB、専用 IAM ユーザー、ポリシー）は一切使用されていません。
 
 ---
@@ -34,5 +34,5 @@ npx cdk destroy GameQaDashboardStack
 
 オンプレミス環境（`onprem/`）内で稼働する **FastAPI + SQLite (WALモード)** により、すべての検索・メタデータ管理がローカルストレージ（`/data/db/qa.db`）上で完結しています。
 詳細は以下を参照してください：
-- [`docs/architecture-improvement-plan.md`](../docs/architecture-improvement-plan.md)
+- [`docs/architecture.md`](../docs/architecture.md)
 - [`onprem/backend/`](../onprem/backend/)

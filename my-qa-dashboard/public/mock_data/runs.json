@@ -6,9 +6,14 @@
     "testName": "Level1_Playthrough",
     "status": "FAILED",
     "timestamp": "2026-08-01T10:15:00Z",
-    "avgFps": 52.3,
-    "minFps": 14.8,
-    "peakMemoryMb": 890.2,
+    "avgFps": 52.4,
+    "minFps": 5.0,
+    "peakMemoryMb": 0.0,
+    "durationSeconds": 300.0,
+    "deviceModel": "PlayStation 5 CFI-1200",
+    "triggeredBy": "nightly",
+    "totalSizeBytes": 30810006,
+    "updatedAt": "2026-08-01T10:15:00Z",
     "fpsDataUrl": "sample_data/run-001/fps_metrics.csv",
     "memoryDataUrl": "sample_data/run-001/memory_metrics.csv",
     "logsDataUrl": "sample_data/samplelog.log",
@@ -16,57 +21,68 @@
       {
         "url": "sample_data/run-001/fps_metrics.csv",
         "fileName": "fps_metrics.csv",
-        "type": "fps"
+        "type": "fps",
+        "sizeBytes": 70095
       },
       {
         "url": "sample_data/run-001/memory_metrics.csv",
         "fileName": "memory_metrics.csv",
-        "type": "memory"
+        "type": "memory",
+        "sizeBytes": 33458
       },
       {
         "url": "sample_data/samplelog.log",
         "fileName": "samplelog.log",
-        "type": "log"
+        "type": "log",
+        "sizeBytes": 60500
       },
       {
         "url": "sample_data/run-001/video.mp4",
         "fileName": "video.mp4",
-        "type": "video"
+        "type": "video",
+        "sizeBytes": 15317528
       },
       {
         "url": "sample_data/run-001/video_boss_fight.mp4",
         "fileName": "video_boss_fight.mp4",
-        "type": "video"
+        "type": "video",
+        "sizeBytes": 15317528
       },
       {
         "url": "sample_data/run-001/screenshot_001.png",
         "fileName": "screenshot_001.png",
-        "type": "screenshot"
+        "type": "screenshot",
+        "sizeBytes": 3368
       },
       {
         "url": "sample_data/run-001/screenshot_002.png",
         "fileName": "screenshot_002.png",
-        "type": "screenshot"
+        "type": "screenshot",
+        "sizeBytes": 3478
       },
       {
         "url": "sample_data/run-001/screenshot_003.png",
         "fileName": "screenshot_003.png",
-        "type": "screenshot"
+        "type": "screenshot",
+        "sizeBytes": 3489
       },
       {
         "url": "sample_data/run-001/crash.dmp",
         "fileName": "crash.dmp",
-        "type": "crashdump"
+        "type": "crashdump",
+        "sizeBytes": 16
       },
       {
         "url": "sample_data/run-001/profile.utrace",
         "fileName": "profile.utrace",
-        "type": "trace"
+        "type": "trace",
+        "sizeBytes": 14
       },
       {
         "url": "sample_data/run-001/test_report.html",
         "fileName": "test_report.html",
-        "type": "report"
+        "type": "report",
+        "sizeBytes": 532
       }
     ],
     "videoUrl": "sample_data/run-001/video.mp4"
@@ -78,9 +94,14 @@
     "testName": "Boss_Battle_Stress",
     "status": "PASSED",
     "timestamp": "2026-08-01T14:40:00Z",
-    "avgFps": 57.6,
-    "minFps": 34.5,
-    "peakMemoryMb": 652.1,
+    "avgFps": 57.9,
+    "minFps": 30.4,
+    "peakMemoryMb": 0.0,
+    "durationSeconds": 300.0,
+    "deviceModel": "GeForce RTX 4080 / i7-14700K",
+    "triggeredBy": "nightly",
+    "totalSizeBytes": 15486711,
+    "updatedAt": "2026-08-01T14:40:00Z",
     "fpsDataUrl": "sample_data/run-002/fps_metrics.csv",
     "memoryDataUrl": "sample_data/run-002/memory_metrics.csv",
     "logsDataUrl": "sample_data/samplelog.log",
@@ -88,32 +109,38 @@
       {
         "url": "sample_data/run-002/fps_metrics.csv",
         "fileName": "fps_metrics.csv",
-        "type": "fps"
+        "type": "fps",
+        "sizeBytes": 69795
       },
       {
         "url": "sample_data/run-002/memory_metrics.csv",
         "fileName": "memory_metrics.csv",
-        "type": "memory"
+        "type": "memory",
+        "sizeBytes": 32512
       },
       {
         "url": "sample_data/samplelog.log",
         "fileName": "samplelog.log",
-        "type": "log"
+        "type": "log",
+        "sizeBytes": 60500
       },
       {
         "url": "sample_data/run-002/video.mp4",
         "fileName": "video.mp4",
-        "type": "video"
+        "type": "video",
+        "sizeBytes": 15317528
       },
       {
         "url": "sample_data/run-002/screenshot_001.png",
         "fileName": "screenshot_001.png",
-        "type": "screenshot"
+        "type": "screenshot",
+        "sizeBytes": 3201
       },
       {
         "url": "sample_data/run-002/screenshot_002.png",
         "fileName": "screenshot_002.png",
-        "type": "screenshot"
+        "type": "screenshot",
+        "sizeBytes": 3175
       }
     ],
     "videoUrl": "sample_data/run-002/video.mp4"
@@ -125,9 +152,14 @@
     "testName": "Level1_Playthrough",
     "status": "PASSED",
     "timestamp": "2026-08-02T09:05:00Z",
-    "avgFps": 27.8,
-    "minFps": 11.8,
-    "peakMemoryMb": 420.5,
+    "avgFps": 28.5,
+    "minFps": 6.1,
+    "peakMemoryMb": 0.0,
+    "durationSeconds": 300.0,
+    "deviceModel": "iPhone 15 Pro",
+    "triggeredBy": "pr_check",
+    "totalSizeBytes": 334813,
+    "updatedAt": "2026-08-02T09:05:00Z",
     "fpsDataUrl": "sample_data/run-003/fps_metrics.json",
     "memoryDataUrl": "sample_data/run-003/memory_metrics.json",
     "logsDataUrl": "sample_data/samplelog.log",
@@ -135,17 +167,20 @@
       {
         "url": "sample_data/run-003/fps_metrics.json",
         "fileName": "fps_metrics.json",
-        "type": "fps"
+        "type": "fps",
+        "sizeBytes": 178988
       },
       {
         "url": "sample_data/run-003/memory_metrics.json",
         "fileName": "memory_metrics.json",
-        "type": "memory"
+        "type": "memory",
+        "sizeBytes": 95325
       },
       {
         "url": "sample_data/samplelog.log",
         "fileName": "samplelog.log",
-        "type": "log"
+        "type": "log",
+        "sizeBytes": 60500
       }
     ]
   },
@@ -156,9 +191,14 @@
     "testName": "Level1_Playthrough",
     "status": "PASSED",
     "timestamp": "2026-08-03T11:00:00Z",
-    "avgFps": 58.4,
-    "minFps": 37.9,
-    "peakMemoryMb": 782.4,
+    "avgFps": 58.9,
+    "minFps": 29.7,
+    "peakMemoryMb": 0.0,
+    "durationSeconds": 300.0,
+    "deviceModel": "PlayStation 5 CFI-1200",
+    "triggeredBy": "manual",
+    "totalSizeBytes": 15487948,
+    "updatedAt": "2026-08-03T11:00:00Z",
     "fpsDataUrl": "sample_data/run-004/fps_metrics.csv",
     "memoryDataUrl": "sample_data/run-004/memory_metrics.csv",
     "logsDataUrl": "sample_data/samplelog.log",
@@ -166,32 +206,38 @@
       {
         "url": "sample_data/run-004/fps_metrics.csv",
         "fileName": "fps_metrics.csv",
-        "type": "fps"
+        "type": "fps",
+        "sizeBytes": 69700
       },
       {
         "url": "sample_data/run-004/memory_metrics.csv",
         "fileName": "memory_metrics.csv",
-        "type": "memory"
+        "type": "memory",
+        "sizeBytes": 33496
       },
       {
         "url": "sample_data/samplelog.log",
         "fileName": "samplelog.log",
-        "type": "log"
+        "type": "log",
+        "sizeBytes": 60500
       },
       {
         "url": "sample_data/run-004/video.mp4",
         "fileName": "video.mp4",
-        "type": "video"
+        "type": "video",
+        "sizeBytes": 15317528
       },
       {
         "url": "sample_data/run-004/screenshot_001.png",
         "fileName": "screenshot_001.png",
-        "type": "screenshot"
+        "type": "screenshot",
+        "sizeBytes": 3335
       },
       {
         "url": "sample_data/run-004/screenshot_002.png",
         "fileName": "screenshot_002.png",
-        "type": "screenshot"
+        "type": "screenshot",
+        "sizeBytes": 3389
       }
     ],
     "videoUrl": "sample_data/run-004/video.mp4"
@@ -201,11 +247,16 @@
     "gameVersion": "v1.2.1",
     "platform": "Windows",
     "testName": "Boss_Battle_Stress",
-    "status": "PASSED",
+    "status": "ABORTED",
     "timestamp": "2026-08-02T16:20:00Z",
-    "avgFps": 59.8,
-    "minFps": 56.2,
-    "peakMemoryMb": 641.0,
+    "avgFps": 60.0,
+    "minFps": 29.0,
+    "peakMemoryMb": 0.0,
+    "durationSeconds": 145.0,
+    "deviceModel": "GeForce RTX 4080 / i7-14700K",
+    "triggeredBy": "nightly",
+    "totalSizeBytes": 15483477,
+    "updatedAt": "2026-08-02T16:20:00Z",
     "fpsDataUrl": "sample_data/run-005/fps_metrics.csv",
     "memoryDataUrl": "sample_data/run-005/memory_metrics.csv",
     "logsDataUrl": "sample_data/samplelog.log",
@@ -213,258 +264,34 @@
       {
         "url": "sample_data/run-005/fps_metrics.csv",
         "fileName": "fps_metrics.csv",
-        "type": "fps"
+        "type": "fps",
+        "sizeBytes": 69683
       },
       {
         "url": "sample_data/run-005/memory_metrics.csv",
         "fileName": "memory_metrics.csv",
-        "type": "memory"
+        "type": "memory",
+        "sizeBytes": 32544
       },
       {
         "url": "sample_data/samplelog.log",
         "fileName": "samplelog.log",
-        "type": "log"
+        "type": "log",
+        "sizeBytes": 60500
       },
       {
         "url": "sample_data/run-005/video.mp4",
         "fileName": "video.mp4",
-        "type": "video"
+        "type": "video",
+        "sizeBytes": 15317528
       },
       {
         "url": "sample_data/run-005/screenshot_001.png",
         "fileName": "screenshot_001.png",
-        "type": "screenshot"
+        "type": "screenshot",
+        "sizeBytes": 3222
       }
     ],
     "videoUrl": "sample_data/run-005/video.mp4"
-  },
-  {
-    "runId": "run-006",
-    "gameVersion": "v1.2.2",
-    "platform": "PS5",
-    "testName": "Level1_Playthrough",
-    "status": "PASSED",
-    "timestamp": "2026-08-05T10:30:00Z",
-    "avgFps": 59.1,
-    "minFps": 48.0,
-    "peakMemoryMb": 768.0,
-    "fpsDataUrl": "sample_data/run-004/fps_metrics.csv",
-    "memoryDataUrl": "sample_data/run-004/memory_metrics.csv",
-    "logsDataUrl": "sample_data/samplelog.log",
-    "artifacts": [
-      {
-        "url": "sample_data/run-004/fps_metrics.csv",
-        "fileName": "fps_metrics.csv",
-        "type": "fps"
-      },
-      {
-        "url": "sample_data/run-004/memory_metrics.csv",
-        "fileName": "memory_metrics.csv",
-        "type": "memory"
-      },
-      {
-        "url": "sample_data/samplelog.log",
-        "fileName": "samplelog.log",
-        "type": "log"
-      },
-      {
-        "url": "sample_data/run-004/video.mp4",
-        "fileName": "video.mp4",
-        "type": "video"
-      }
-    ],
-    "videoUrl": "sample_data/run-004/video.mp4"
-  },
-  {
-    "runId": "run-007",
-    "gameVersion": "v1.2.2",
-    "platform": "Windows",
-    "testName": "Boss_Battle_Stress",
-    "status": "PASSED",
-    "timestamp": "2026-08-06T15:10:00Z",
-    "avgFps": 60.1,
-    "minFps": 57.5,
-    "peakMemoryMb": 635.4,
-    "fpsDataUrl": "sample_data/run-005/fps_metrics.csv",
-    "memoryDataUrl": "sample_data/run-005/memory_metrics.csv",
-    "logsDataUrl": "sample_data/samplelog.log",
-    "artifacts": [
-      {
-        "url": "sample_data/run-005/fps_metrics.csv",
-        "fileName": "fps_metrics.csv",
-        "type": "fps"
-      },
-      {
-        "url": "sample_data/run-005/memory_metrics.csv",
-        "fileName": "memory_metrics.csv",
-        "type": "memory"
-      },
-      {
-        "url": "sample_data/samplelog.log",
-        "fileName": "samplelog.log",
-        "type": "log"
-      }
-    ]
-  },
-  {
-    "runId": "run-008",
-    "gameVersion": "v1.3.0-rc1",
-    "platform": "PS5",
-    "testName": "Level1_Playthrough",
-    "status": "FAILED",
-    "timestamp": "2026-08-09T11:20:00Z",
-    "avgFps": 43.8,
-    "minFps": 18.2,
-    "peakMemoryMb": 924.8,
-    "fpsDataUrl": "sample_data/run-001/fps_metrics.csv",
-    "memoryDataUrl": "sample_data/run-001/memory_metrics.csv",
-    "logsDataUrl": "sample_data/samplelog.log",
-    "artifacts": [
-      {
-        "url": "sample_data/run-001/fps_metrics.csv",
-        "fileName": "fps_metrics.csv",
-        "type": "fps"
-      },
-      {
-        "url": "sample_data/run-001/memory_metrics.csv",
-        "fileName": "memory_metrics.csv",
-        "type": "memory"
-      },
-      {
-        "url": "sample_data/samplelog.log",
-        "fileName": "samplelog.log",
-        "type": "log"
-      },
-      {
-        "url": "sample_data/run-001/video.mp4",
-        "fileName": "video.mp4",
-        "type": "video"
-      }
-    ],
-    "videoUrl": "sample_data/run-001/video.mp4"
-  },
-  {
-    "runId": "run-009",
-    "gameVersion": "v1.3.0-rc1",
-    "platform": "Windows",
-    "testName": "Boss_Battle_Stress",
-    "status": "FAILED",
-    "timestamp": "2026-08-09T17:00:00Z",
-    "avgFps": 48.2,
-    "minFps": 22.0,
-    "peakMemoryMb": 780.0,
-    "fpsDataUrl": "sample_data/run-002/fps_metrics.csv",
-    "memoryDataUrl": "sample_data/run-002/memory_metrics.csv",
-    "logsDataUrl": "sample_data/samplelog.log",
-    "artifacts": [
-      {
-        "url": "sample_data/run-002/fps_metrics.csv",
-        "fileName": "fps_metrics.csv",
-        "type": "fps"
-      },
-      {
-        "url": "sample_data/run-002/memory_metrics.csv",
-        "fileName": "memory_metrics.csv",
-        "type": "memory"
-      },
-      {
-        "url": "sample_data/samplelog.log",
-        "fileName": "samplelog.log",
-        "type": "log"
-      }
-    ]
-  },
-  {
-    "runId": "run-010",
-    "gameVersion": "v1.3.0-rc2",
-    "platform": "PS5",
-    "testName": "Level1_Playthrough",
-    "status": "PASSED",
-    "timestamp": "2026-08-12T09:45:00Z",
-    "avgFps": 58.5,
-    "minFps": 47.3,
-    "peakMemoryMb": 792.0,
-    "fpsDataUrl": "sample_data/run-004/fps_metrics.csv",
-    "memoryDataUrl": "sample_data/run-004/memory_metrics.csv",
-    "logsDataUrl": "sample_data/samplelog.log",
-    "artifacts": [
-      {
-        "url": "sample_data/run-004/fps_metrics.csv",
-        "fileName": "fps_metrics.csv",
-        "type": "fps"
-      },
-      {
-        "url": "sample_data/run-004/memory_metrics.csv",
-        "fileName": "memory_metrics.csv",
-        "type": "memory"
-      },
-      {
-        "url": "sample_data/samplelog.log",
-        "fileName": "samplelog.log",
-        "type": "log"
-      }
-    ]
-  },
-  {
-    "runId": "run-011",
-    "gameVersion": "v1.3.0",
-    "platform": "PS5",
-    "testName": "Level1_Playthrough",
-    "status": "PASSED",
-    "timestamp": "2026-08-15T14:00:00Z",
-    "avgFps": 59.6,
-    "minFps": 51.4,
-    "peakMemoryMb": 775.2,
-    "fpsDataUrl": "sample_data/run-004/fps_metrics.csv",
-    "memoryDataUrl": "sample_data/run-004/memory_metrics.csv",
-    "logsDataUrl": "sample_data/samplelog.log",
-    "artifacts": [
-      {
-        "url": "sample_data/run-004/fps_metrics.csv",
-        "fileName": "fps_metrics.csv",
-        "type": "fps"
-      },
-      {
-        "url": "sample_data/run-004/memory_metrics.csv",
-        "fileName": "memory_metrics.csv",
-        "type": "memory"
-      },
-      {
-        "url": "sample_data/samplelog.log",
-        "fileName": "samplelog.log",
-        "type": "log"
-      }
-    ]
-  },
-  {
-    "runId": "run-012",
-    "gameVersion": "v1.3.0",
-    "platform": "Windows",
-    "testName": "Boss_Battle_Stress",
-    "status": "PASSED",
-    "timestamp": "2026-08-16T11:30:00Z",
-    "avgFps": 60.3,
-    "minFps": 58.1,
-    "peakMemoryMb": 642.0,
-    "fpsDataUrl": "sample_data/run-005/fps_metrics.csv",
-    "memoryDataUrl": "sample_data/run-005/memory_metrics.csv",
-    "logsDataUrl": "sample_data/samplelog.log",
-    "artifacts": [
-      {
-        "url": "sample_data/run-005/fps_metrics.csv",
-        "fileName": "fps_metrics.csv",
-        "type": "fps"
-      },
-      {
-        "url": "sample_data/run-005/memory_metrics.csv",
-        "fileName": "memory_metrics.csv",
-        "type": "memory"
-      },
-      {
-        "url": "sample_data/samplelog.log",
-        "fileName": "samplelog.log",
-        "type": "log"
-      }
-    ]
   }
 ]

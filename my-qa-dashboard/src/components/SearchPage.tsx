@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowLeftRight,
   ArrowUp,
@@ -18,7 +19,7 @@ import { searchService } from '../services';
 import type { SearchFilter, TestRunSummary } from '../services';
 
 const PLATFORMS = ['PS5', 'Windows', 'iOS'];
-const STATUSES = ['PASSED', 'FAILED'];
+const STATUSES = ['PASSED', 'FAILED', 'ABORTED'];
 
 type SortField = 'timestamp' | 'runId' | 'gameVersion' | 'platform' | 'testName' | 'status';
 type SortOrder = 'asc' | 'desc';
@@ -402,7 +403,14 @@ export default function SearchPage({
                       </span>
                     </td>
                     <td className="px-3 py-2 text-slate-300">{run.gameVersion}</td>
-                    <td className="px-3 py-2 text-slate-300">{run.platform}</td>
+                    <td className="px-3 py-2 text-slate-300">
+                      <div>{run.platform}</div>
+                      {run.deviceModel && (
+                        <div className="text-[10px] text-slate-500 font-mono" title={run.deviceModel}>
+                          {run.deviceModel}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1.5">
                         <span className="text-slate-200 font-medium">{run.testName}</span>
@@ -418,15 +426,27 @@ export default function SearchPage({
                           </button>
                         )}
                       </div>
+                      {run.durationSeconds !== undefined && (
+                        <div className="text-[10px] text-slate-500">
+                          {Math.floor(run.durationSeconds / 60)}m {Math.round(run.durationSeconds % 60)}s
+                          {run.triggeredBy && ` (${run.triggeredBy})`}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2">
-                      {run.status === 'PASSED' ? (
+                      {run.status === 'PASSED' && (
                         <span className="inline-flex items-center gap-1 rounded bg-green-500/15 px-2 py-0.5 text-xs text-green-400">
                           <CheckCircle2 size={12} /> PASSED
                         </span>
-                      ) : (
+                      )}
+                      {run.status === 'FAILED' && (
                         <span className="inline-flex items-center gap-1 rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-400">
                           <XCircle size={12} /> FAILED
+                        </span>
+                      )}
+                      {run.status === 'ABORTED' && (
+                        <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-xs text-amber-400">
+                          <AlertTriangle size={12} /> ABORTED
                         </span>
                       )}
                     </td>

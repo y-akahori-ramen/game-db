@@ -37,7 +37,7 @@ export interface TestRunSummary {
     gameVersion: string;
     platform: string;
     testName: string;
-    status: 'PASSED' | 'FAILED';
+    status: 'PASSED' | 'FAILED' | 'ABORTED';
     timestamp: string;
     /** Average FPS across the test run, if available. */
     avgFps?: number;
@@ -45,6 +45,16 @@ export interface TestRunSummary {
     minFps?: number;
     /** Peak memory usage in MB, if available. */
     peakMemoryMb?: number;
+    /** Total test run duration in seconds, if available. */
+    durationSeconds?: number;
+    /** Specific hardware / device model name, if recorded. */
+    deviceModel?: string;
+    /** Trigger type for the run (e.g. nightly, pr_check, manual), if available. */
+    triggeredBy?: string;
+    /** Total size in bytes of all run artifacts on disk, if known. */
+    totalSizeBytes?: number;
+    /** Timestamp when the record was last updated, if available. */
+    updatedAt?: string;
     /** BASE_URL-relative path to the FPS data file (.csv or .json). Absent if no FPS data. */
     fpsDataUrl?: string;
     /** BASE_URL-relative path to the memory data file (.csv or .json). Absent if no memory data. */

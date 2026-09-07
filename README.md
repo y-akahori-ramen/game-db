@@ -40,9 +40,8 @@ game-db/
 ├── scripts/             # ローカル開発・検証支援スクリプト
 │   └── test_local_pipeline.py # Stage 2 パイプライン結合テスト (FastAPI + SQLite WAL + 409/507保護)
 ├── docs/                # 詳細設計ドキュメント
-│   ├── architecture-improvement-plan.md # 改善ロードマップ (Phase 1〜4)
-│   ├── dmz-reverse-proxy-guide.md # 社内 DMZ 側リバースプロキシ (HTTPS終端) 設定ガイド
-│   └── aws-architecture.md   # [ARCHIVED] 旧 AWS クラウドデプロイアーキテクチャ設計書
+│   ├── architecture.md  # システムアーキテクチャ設計書 (完全オンプレミス自律構成)
+│   └── dmz-reverse-proxy-guide.md # 社内 DMZ 側リバースプロキシ (HTTPS終端) 設定ガイド
 └── README.md            # 本ドキュメント
 ```
 
@@ -245,7 +244,7 @@ PYTHONPATH=onprem/backend python3 onprem/backend/cleanup.py --days 30 --dry-run
 
 ## ドキュメント一覧
 
-- [アーキテクチャレビューと改善ロードマップ (`docs/architecture-improvement-plan.md`)](docs/architecture-improvement-plan.md): アーキテクト観点による現行課題レビュー、SQLite (WALモード) への完全移行、DuckDB-WASM セルフホスト化、全フェーズの作業計画と進捗。
+- [システムアーキテクチャ設計書 (`docs/architecture.md`)](docs/architecture.md): システム構成、コンポーネント仕様、SQLite (WALモード) スキーマ、DuckDB-WASM セルフホスト、データフロー、運用保守設計。
 - [社内 DMZ リバースプロキシ設定ガイド (`docs/dmz-reverse-proxy-guide.md`)](docs/dmz-reverse-proxy-guide.md): 社内 DMZ 側リバースプロキシ (HTTPS終端) 設定ガイド。
 - [QA Upload CLI ドキュメント (`cli/README.md`)](cli/README.md): CLI の詳細オプション、Google OAuth 認証仕様、トークン管理、`--overwrite` 上書き保護。
 - [インフラ CDK アプリ ドキュメント (`infra/README.md`)](infra/README.md): [廃止] 旧 DynamoDB CDK スタックのリソース破棄手順 (`cdk destroy`)。

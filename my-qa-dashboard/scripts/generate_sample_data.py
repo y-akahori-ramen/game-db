@@ -62,11 +62,14 @@ class RunSpec:
     game_version: str
     platform: str
     test_name: str
-    status: str  # PASSED | FAILED
+    status: str  # PASSED | FAILED | ABORTED
     timestamp: str
     fmt: str  # csv | json
     base_fps: float
     drops: list[tuple[int, int, int]]  # (start_sec, length_sec, floor_fps)
+    duration_seconds: float = 300.0
+    device_model: str = ""
+    triggered_by: str = ""
     levels: list[str] = field(default_factory=lambda: ["PL_Level1", "PL_Level2"])
     video: bool = False  # whether this run has a captured gameplay video
     video_files: list[str] = field(default_factory=list)  # additional video files to include
@@ -85,6 +88,9 @@ RUNS = [
         fmt="csv",
         base_fps=55,
         drops=[(60, 8, 22), (145, 5, 15), (230, 12, 25)],
+        duration_seconds=300.0,
+        device_model="PlayStation 5 CFI-1200",
+        triggered_by="nightly",
         video=True,
         video_files=["video_boss_fight.mp4"],
         screenshots=3,
@@ -124,6 +130,9 @@ RUNS = [
         fmt="csv",
         base_fps=58,
         drops=[(120, 4, 35)],
+        duration_seconds=300.0,
+        device_model="GeForce RTX 4080 / i7-14700K",
+        triggered_by="nightly",
         video=True,
         screenshots=2,
     ),
@@ -137,6 +146,9 @@ RUNS = [
         fmt="json",
         base_fps=29,
         drops=[(90, 6, 12), (200, 10, 15)],
+        duration_seconds=300.0,
+        device_model="iPhone 15 Pro",
+        triggered_by="pr_check",
     ),
     RunSpec(
         run_id="run-004",
@@ -148,6 +160,9 @@ RUNS = [
         fmt="csv",
         base_fps=59,
         drops=[(60, 4, 38)],
+        duration_seconds=300.0,
+        device_model="PlayStation 5 CFI-1200",
+        triggered_by="manual",
         video=True,
         screenshots=2,
     ),
@@ -156,11 +171,14 @@ RUNS = [
         game_version="v1.2.1",
         platform="Windows",
         test_name="Boss_Battle_Stress",
-        status="PASSED",
+        status="ABORTED",
         timestamp="2026-08-02T16:20:00Z",
         fmt="csv",
         base_fps=60,
         drops=[],
+        duration_seconds=145.0,
+        device_model="GeForce RTX 4080 / i7-14700K",
+        triggered_by="nightly",
         video=True,
         screenshots=1,
     ),
@@ -332,8 +350,10 @@ def main() -> None:
         run_dir.mkdir(parents=True, exist_ok=True)
         fps_name = f"fps_metrics.{spec.fmt}"
         memory_name = f"memory_metrics.{spec.fmt}"
-        write_metrics(generate_fps(spec), run_dir / fps_name)
-        write_metrics(generate_memory(spec), run_dir / memory_name)
+        df_fps = generate_fps(spec)
+        df_mem = generate_memory(spec)
+        write_metrics(df_fps, run_dir / fps_name)
+        write_metrics(df_mem, run_dir / memory_name)
 
         video_url = None
         if spec.video:
@@ -358,34 +378,42 @@ def main() -> None:
         memory_url = f"sample_data/{spec.run_id}/{memory_name}"
         logs_url = "sample_data/samplelog.log"
 
+        def get_file_size(p: Path) -> int:
+            try:
+                return p.stat().st_size
+            except OSError:
+                return 0
+
         artifacts = [
-            {"url": fps_url, "fileName": fps_name, "type": "fps"},
-            {"url": memory_url, "fileName": memory_name, "type": "memory"},
-            {"url": logs_url, "fileName": "samplelog.log", "type": "log"},
+            {"url": fps_url, "fileName": fps_name, "type": "fps", "sizeBytes": get_file_size(run_dir / fps_name)},
+            {"url": memory_url, "fileName": memory_name, "type": "memory", "sizeBytes": get_file_size(run_dir / memory_name)},
+            {"url": logs_url, "fileName": "samplelog.log", "type": "log", "sizeBytes": get_file_size(SAMPLE_DIR / "samplelog.log")},
         ]
         if video_url:
-            artifacts.append({"url": video_url, "fileName": "video.mp4", "type": "video"})
+            artifacts.append({"url": video_url, "fileName": "video.mp4", "type": "video", "sizeBytes": get_file_size(run_dir / "video.mp4")})
         for extra_video in spec.video_files:
             extra_video_path = run_dir / extra_video
             shutil.copyfile(SOURCE_VIDEO, extra_video_path)
             extra_video_url = f"sample_data/{spec.run_id}/{extra_video}"
-            artifacts.append({"url": extra_video_url, "fileName": extra_video, "type": "video"})
+            artifacts.append({"url": extra_video_url, "fileName": extra_video, "type": "video", "sizeBytes": get_file_size(extra_video_path)})
             print(f"wrote {extra_video_path}")
         for shot_url in screenshot_urls:
-            artifacts.append({"url": shot_url, "fileName": Path(shot_url).name, "type": "screenshot"})
+            shot_file_name = Path(shot_url).name
+            artifacts.append({"url": shot_url, "fileName": shot_file_name, "type": "screenshot", "sizeBytes": get_file_size(run_dir / shot_file_name)})
         for extra_name, extra_type, extra_content in spec.extra_artifacts:
             extra_path = run_dir / extra_name
             if isinstance(extra_content, bytes):
                 extra_path.write_bytes(extra_content)
             else:
                 extra_path.write_text(extra_content, encoding="utf-8")
-            artifacts.append({"url": f"sample_data/{spec.run_id}/{extra_name}", "fileName": extra_name, "type": extra_type})
+            artifacts.append({"url": f"sample_data/{spec.run_id}/{extra_name}", "fileName": extra_name, "type": extra_type, "sizeBytes": get_file_size(extra_path)})
             print(f"wrote {extra_path}")
 
         fps_inst = 1000.0 / df_fps["FPSMs"].replace(0, np.nan)
         avg_fps = round(float(fps_inst.mean()), 1)
         min_fps = round(float(fps_inst.min()), 1)
         peak_memory_mb = round(float(df_mem["TrackedTotal"].max() / (1024 * 1024)), 1)
+        total_size_bytes = sum(a.get("sizeBytes", 0) for a in artifacts)
 
         summary = {
             "runId": spec.run_id,
@@ -397,6 +425,11 @@ def main() -> None:
             "avgFps": avg_fps,
             "minFps": min_fps,
             "peakMemoryMb": peak_memory_mb,
+            "durationSeconds": spec.duration_seconds,
+            "deviceModel": spec.device_model or None,
+            "triggeredBy": spec.triggered_by or None,
+            "totalSizeBytes": total_size_bytes,
+            "updatedAt": spec.timestamp,
             "fpsDataUrl": fps_url,
             "memoryDataUrl": memory_url,
             "logsDataUrl": logs_url,

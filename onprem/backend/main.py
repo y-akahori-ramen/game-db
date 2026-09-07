@@ -370,6 +370,24 @@ def _index_manifest(manifest_path: Path, run_id: str) -> None:
         elif art_type == "video" and not video_url:
             video_url = url
 
+    total_size_bytes = manifest.get("total_size_bytes")
+    if total_size_bytes is not None:
+        try:
+            total_size_bytes = int(total_size_bytes)
+        except (ValueError, TypeError):
+            total_size_bytes = None
+    if total_size_bytes is None and clean_artifacts:
+        calculated_size = sum(art.get("sizeBytes", 0) for art in clean_artifacts)
+        if calculated_size > 0:
+            total_size_bytes = calculated_size
+
+    duration_seconds = manifest.get("duration_seconds")
+    if duration_seconds is not None:
+        try:
+            duration_seconds = float(duration_seconds)
+        except (ValueError, TypeError):
+            duration_seconds = None
+
     db.upsert_run(
         run_id=manifest.get("run_id", run_id),
         executed_at=manifest.get("executed_at", datetime.now(timezone.utc).isoformat()),
@@ -381,10 +399,10 @@ def _index_manifest(manifest_path: Path, run_id: str) -> None:
         avg_fps=float(manifest["avg_fps"]) if manifest.get("avg_fps") is not None else None,
         min_fps=float(manifest["min_fps"]) if manifest.get("min_fps") is not None else None,
         peak_memory_mb=float(manifest["peak_memory_mb"]) if manifest.get("peak_memory_mb") is not None else None,
-        git_branch=manifest.get("git_branch"),
-        git_commit=manifest.get("git_commit"),
-        build_id=manifest.get("build_id"),
-        error_summary=manifest.get("error_summary"),
+        duration_seconds=duration_seconds,
+        device_model=manifest.get("device_model"),
+        triggered_by=manifest.get("triggered_by"),
+        total_size_bytes=total_size_bytes,
         fps_data_url=fps_data_url,
         memory_data_url=memory_data_url,
         logs_data_url=logs_data_url,

@@ -15,8 +15,7 @@
         ▼
 [Game QA Dashboard サービス] (Docker Compose: Nginx + OAuth2-Proxy + Backend + Storage)
         │
-        ├── アウトバウンド HTTPS (443) ──> Google OIDC (accounts.google.com)
-        └── アウトバウンド HTTPS (443) ──> AWS DynamoDB (dynamodb.ap-northeast-1.amazonaws.com)
+        └── アウトバウンド HTTPS (443) ──> Google OIDC (accounts.google.com)
 ```
 
 ---
@@ -57,7 +56,6 @@ DMZ プロキシで HTTPS を終端し、本サービスへ HTTP で転送する
 | 接続先 | ポート | 用途 |
 | --- | --- | --- |
 | `accounts.google.com`<br/>`oauth2.googleapis.com` | 443 | Google OAuth 2.0 / OIDC ログイン認証、トークン検証 |
-| `dynamodb.ap-northeast-1.amazonaws.com` | 443 | AWS DynamoDB 検索インデックスのクエリおよび書き込み |
 
 > [!NOTE]
 > DMZ 内から直接インターネットへ出られない場合は、社内のフォワードプロキシ（Squid 等）経由で通信可能です。本サービス（Docker Compose）の `.env` で `HTTPS_PROXY=http://proxy.internal:8080` を指定してください。

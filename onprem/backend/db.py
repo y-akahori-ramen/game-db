@@ -63,21 +63,23 @@ def init_db() -> None:
                 avg_fps REAL,
                 min_fps REAL,
                 peak_memory_mb REAL,
-                git_branch TEXT,
-                git_commit TEXT,
-                build_id TEXT,
-                error_summary TEXT,
+                duration_seconds REAL,
+                device_model TEXT,
+                triggered_by TEXT,
+                total_size_bytes INTEGER,
                 artifacts_json TEXT NOT NULL,
                 fps_data_url TEXT,
                 memory_data_url TEXT,
                 logs_data_url TEXT,
                 video_url TEXT,
-                created_at TEXT DEFAULT (datetime('now'))
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_runs_executed_at ON test_runs(executed_at DESC);
             CREATE INDEX IF NOT EXISTS idx_runs_platform_date ON test_runs(platform, executed_at DESC);
             CREATE INDEX IF NOT EXISTS idx_runs_status_date ON test_runs(status, executed_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_runs_version_date ON test_runs(game_version, executed_at DESC);
             CREATE INDEX IF NOT EXISTS idx_runs_test_name ON test_runs(test_name);
 
             -- 2. API キー管理テーブル
@@ -127,14 +129,16 @@ def row_to_summary(row: sqlite3.Row) -> dict[str, Any]:
         summary["minFps"] = float(row["min_fps"])
     if row["peak_memory_mb"] is not None:
         summary["peakMemoryMb"] = float(row["peak_memory_mb"])
-    if row["git_branch"]:
-        summary["gitBranch"] = row["git_branch"]
-    if row["git_commit"]:
-        summary["gitCommit"] = row["git_commit"]
-    if row["build_id"]:
-        summary["buildId"] = row["build_id"]
-    if row["error_summary"]:
-        summary["errorSummary"] = row["error_summary"]
+    if row["duration_seconds"] is not None:
+        summary["durationSeconds"] = float(row["duration_seconds"])
+    if row["device_model"]:
+        summary["deviceModel"] = row["device_model"]
+    if row["triggered_by"]:
+        summary["triggeredBy"] = row["triggered_by"]
+    if row["total_size_bytes"] is not None:
+        summary["totalSizeBytes"] = int(row["total_size_bytes"])
+    if row["updated_at"]:
+        summary["updatedAt"] = row["updated_at"]
     return summary
 
 
@@ -149,14 +153,15 @@ def upsert_run(
     avg_fps: Optional[float] = None,
     min_fps: Optional[float] = None,
     peak_memory_mb: Optional[float] = None,
-    git_branch: Optional[str] = None,
-    git_commit: Optional[str] = None,
-    build_id: Optional[str] = None,
-    error_summary: Optional[str] = None,
+    duration_seconds: Optional[float] = None,
+    device_model: Optional[str] = None,
+    triggered_by: Optional[str] = None,
+    total_size_bytes: Optional[int] = None,
     fps_data_url: Optional[str] = None,
     memory_data_url: Optional[str] = None,
     logs_data_url: Optional[str] = None,
     video_url: Optional[str] = None,
+    updated_at: Optional[str] = None,
 ) -> None:
     artifacts_json = json.dumps(artifacts)
     with get_db() as conn:
@@ -165,9 +170,10 @@ def upsert_run(
             INSERT INTO test_runs (
                 run_id, executed_at, game_version, platform, test_name,
                 status, avg_fps, min_fps, peak_memory_mb,
-                git_branch, git_commit, build_id, error_summary,
-                artifacts_json, fps_data_url, memory_data_url, logs_data_url, video_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                duration_seconds, device_model, triggered_by, total_size_bytes,
+                artifacts_json, fps_data_url, memory_data_url, logs_data_url, video_url,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(run_id) DO UPDATE SET
                 executed_at=excluded.executed_at,
                 game_version=excluded.game_version,
@@ -177,15 +183,16 @@ def upsert_run(
                 avg_fps=excluded.avg_fps,
                 min_fps=excluded.min_fps,
                 peak_memory_mb=excluded.peak_memory_mb,
-                git_branch=excluded.git_branch,
-                git_commit=excluded.git_commit,
-                build_id=excluded.build_id,
-                error_summary=excluded.error_summary,
+                duration_seconds=excluded.duration_seconds,
+                device_model=excluded.device_model,
+                triggered_by=excluded.triggered_by,
+                total_size_bytes=excluded.total_size_bytes,
                 artifacts_json=excluded.artifacts_json,
                 fps_data_url=excluded.fps_data_url,
                 memory_data_url=excluded.memory_data_url,
                 logs_data_url=excluded.logs_data_url,
-                video_url=excluded.video_url
+                video_url=excluded.video_url,
+                updated_at=COALESCE(excluded.updated_at, datetime('now'))
             """,
             (
                 run_id,
@@ -197,15 +204,16 @@ def upsert_run(
                 avg_fps,
                 min_fps,
                 peak_memory_mb,
-                git_branch,
-                git_commit,
-                build_id,
-                error_summary,
+                duration_seconds,
+                device_model,
+                triggered_by,
+                total_size_bytes,
                 artifacts_json,
                 fps_data_url,
                 memory_data_url,
                 logs_data_url,
                 video_url,
+                updated_at,
             ),
         )
 
@@ -374,12 +382,12 @@ def purge_run_artifacts(
         new_artifacts_json = json.dumps(artifacts)
         if clear_video:
             conn.execute(
-                "UPDATE test_runs SET artifacts_json = ?, video_url = NULL WHERE run_id = ?",
+                "UPDATE test_runs SET artifacts_json = ?, video_url = NULL, updated_at = datetime('now') WHERE run_id = ?",
                 (new_artifacts_json, run_id),
             )
         else:
             conn.execute(
-                "UPDATE test_runs SET artifacts_json = ? WHERE run_id = ?",
+                "UPDATE test_runs SET artifacts_json = ?, updated_at = datetime('now') WHERE run_id = ?",
                 (new_artifacts_json, run_id),
             )
         return True
