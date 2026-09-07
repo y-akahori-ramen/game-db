@@ -1,19 +1,19 @@
 # Game QA Analytics Dashboard
 
-ゲーム開発向けのクライアントサイド QA アナリティクスダッシュボードと、AWS クラウドインフラおよびデータアップロード CLI を統合したリポジトリです。
+ゲーム開発向けのクライアントサイド QA アナリティクスダッシュボードと、社内オンプレミス運用環境および AWS DynamoDB 連携を統合したリポジトリです。
 
-ブラウザ内の **DuckDB-WASM** による超高速なローカル集計・可視化を中核とし、クラウド側は **Google アカウントによる OIDC 認証（CloudFront + Lambda@Edge）**、**S3 イベント駆動の DynamoDB 検索インデックス**、および **AWS STS Web Identity 連携によるアップロード CLI** で構成されています。
+ブラウザ内の **DuckDB-WASM** による超高速なローカル集計・可視化を中核とし、社内 DMZ / オンプレミス環境（Nginx + OAuth2-Proxy + FastAPI）による Web 認証・大容量データストレージ（30GB制限完全撤廃）・API、**AWS DynamoDB による検索インデックス**、および **個人用 API キー連携によるアップロード CLI** のハイブリッド構成をとっています。
 
 ---
 
 ## 目次
 
 1. [リポジトリ構成](#リポジトリ構成)
-2. [アーキテクチャ概要](#アーキテクチャ概要)
+2. [アーキテクチャ概要](#アーキテクチャ概要オンプレミス--aws-ハイブリッド)
 3. [推奨する 3 段階の開発フロー](#推奨する-3-段階の開発フロー)
    - [Stage 1: 日常開発 / フロントエンド・分析機能（完全ローカル・依存ゼロ）](#stage-1-日常開発--フロントエンド分析機能完全ローカル依存ゼロ)
-   - [Stage 2: パイプライン検証 / CLI 〜 S3 〜 インデクサ 〜 検索（ローカル完結）](#stage-2-パイプライン検証--cli--s3--インデクサ--検索ローカル完結)
-   - [Stage 3: クラウド結合テスト / 開発環境デプロイ（実機・Google OIDC）](#stage-3-クラウド結合テスト--開発環境デプロイ実機google-oidc)
+   - [Stage 2: パイプライン検証 / CLI 〜 オンプレミス バックエンド 〜 DynamoDB 〜 検索（ローカル完結）](#stage-2-パイプライン検証--cli--オンプレミス-バックエンド--dynamodb--検索ローカル完結)
+   - [Stage 3: クラウド & 社内結合テスト / 実機環境デプロイ（AWS DynamoDB + オンプレミス連携）](#stage-3-クラウド--社内結合テスト--実機環境デプロイaws-dynamodb--オンプレミス連携)
 4. [クイックスタート・コマンド集](#クイックスタートコマンド集)
 5. [ドキュメント一覧](#ドキュメント一覧)
 
@@ -38,8 +38,8 @@ game-db/
 │   └── README.md        # CLI 詳細ドキュメント
 ├── infra/               # AWS CDK (TypeScript) インフラコード & ポリシー
 │   ├── onprem-dynamodb-policy.json # オンプレミス連携用 DynamoDB 最小権限 IAM ポリシー
-│   ├── lib/             # CDK スタック定義 (DynamoDB 検索インデックスなど)
-│   └── lambda/          # Lambda 関数
+│   ├── lib/             # CDK スタック定義 (DynamoDB 検索インデックスおよびオンプレミス用 IAM ユーザー)
+│   └── bin/             # CDK アプリエントリポイント
 ├── scripts/             # ローカル開発・検証支援スクリプト
 │   ├── test_local_pipeline.py # Stage 2 パイプライン検証テスト (moto / LocalStack)
 │   └── init-localstack.sh     # LocalStack 初期化スクリプト
@@ -81,12 +81,12 @@ graph TD
         S2_2["B. LocalStack モード (Docker利用)<br/>docker compose -f docker-compose.local.yml up"]
     end
 
-    subgraph Stage3 ["Stage 3: クラウド結合テスト (実機環境)"]
-        S3["AWS CDK デプロイ<br/>CloudFront + Lambda@Edge + Google OIDC<br/>実アカウントでの結合テスト"]
+    subgraph Stage3 ["Stage 3: クラウド & 社内結合テスト (実機環境)"]
+        S3["AWS CDK デプロイ (DynamoDB & IAM)<br/>＋ onprem Docker Compose 起動<br/>実機・Google OIDC での結合テスト"]
     end
 
-    Stage1 -->|"データ登録フローを検証したい"| Stage2
-    Stage2 -->|"本番エッジ認証・実機確認"| Stage3
+    Stage1 -->|"データ登録・検索フローを検証したい"| Stage2
+    Stage2 -->|"AWS・DMZ実機結合"| Stage3
 ```
 
 ---
@@ -120,15 +120,13 @@ graph TD
 
 ---
 
-### Stage 2: パイプライン検証 / CLI 〜 S3 〜 インデクサ 〜 検索（ローカル完結）
+### Stage 2: パイプライン検証 / CLI 〜 オンプレミス バックエンド 〜 DynamoDB 〜 検索（ローカル完結）
 
-**アップロード CLI の変更、マニフェスト形式の拡張、DynamoDB インデクサ Lambda、検索 API の連携を一気通貫でローカル検証したい場合のステージです。**
-
-Google 認証と AWS STS は `--mock-auth` フラグでバイパスし、ローカルストレージに対してパイプラインを走らせます。
+**アップロード CLI の変更、FastAPI による大容量ストリーミング保存、manifest 自動パース & DynamoDB インデックス、検索 API の連携を一気通貫でローカル検証したい場合のステージです。**
 
 #### 方法 A: インメモリ軽量テスト（Docker 不要・最速）
 
-`moto` を利用して、S3 と DynamoDB をインメモリで完全にエミュレートします。Docker デーモンすら起動していない環境でも 1 秒でパイプライン全行程をテストできます。
+`moto` を利用して DynamoDB をインメモリでエミュレートし、テスト用 FastAPI バックエンドサーバーに対して CLI から HTTP アップロード・検索検証を自動実行します。Docker デーモン不要で数秒で全行程をテストできます。
 
 ```sh
 # リポジトリルートから実行
@@ -137,15 +135,16 @@ uv run scripts/test_local_pipeline.py
 
 実行される内容:
 
-1. モック S3 バケット (`qa-data`) と DynamoDB テーブル (`GameQaDashboard-SearchIndex` + 3つの GSI) を初期化
-2. テスト用の一時 run フォルダを生成
-3. `qa_upload.py` を実行して子ファイル群と `manifest.json` を PUT
-4. `manifest-indexer` Lambda ハンドラを S3 イベントで呼び出し、DynamoDB に自動インデックス
-5. `search` Lambda ハンドラを各検索フィルタ条件で呼び出し、結果サマリを検証
+1. モック DynamoDB テーブル (`GameQaDashboard-SearchIndex` + 3つの GSI) を初期化
+2. バックエンド FastAPI サーバーをローカル一時ポートで起動し、テスト用ストレージと API キーを準備
+3. テスト用の run 成果物（CSV, ログ, 動画ダミー等）を生成
+4. `qa_upload.py` を実行して HTTP 経由で直接ストリーミングアップロード
+5. ローカルストレージへの保存および DynamoDB への自動インデックス登録を検証
+6. 検索 API (`/api/search`) を各検索フィルタ条件で呼び出し、結果サマリを検証
 
 #### 方法 B: LocalStack コンテナ環境（Docker 利用）
 
-実際にバックグラウンドで S3 / DynamoDB エミュレータを常駐させ、CLI コマンドを手動で叩いて動作確認したい場合に使用します。
+実際にバックグラウンドで DynamoDB エミュレータを常駐させ、オンプレミス環境や CLI コマンドを手動で叩いて動作確認したい場合に使用します。
 
 1. **LocalStack の起動**:
 
@@ -153,26 +152,9 @@ uv run scripts/test_local_pipeline.py
    docker compose -f docker-compose.local.yml up -d
    ```
 
-   ※初期化スクリプト (`scripts/init-localstack.sh`) により、`qa-data` バケットと GSI 付き DynamoDB テーブルが自動作成されます。
+   ※初期化スクリプト (`scripts/init-localstack.sh`) により、GSI 付き DynamoDB テーブルが自動作成されます。
 
-2. **CLI から LocalStack へアップロード**:
-   `--endpoint-url` と `--mock-auth` を指定してアップロードします：
-
-   ```sh
-   uv run cli/qa_upload.py upload \
-     --bucket qa-data \
-     --run-dir ./my-qa-dashboard/public/sample_data/run-001 \
-     --run-id run-local-test \
-     --game-version v1.0.0 \
-     --platform PS5 \
-     --test-name Local_Integration_Test \
-     --result PASSED \
-     --avg-fps 60.0 \
-     --endpoint-url http://localhost:4566 \
-     --mock-auth
-   ```
-
-3. **パイプラインテストの実行**:
+2. **パイプラインテストの実行**:
 
    ```sh
    uv run scripts/test_local_pipeline.py --endpoint-url http://localhost:4566
@@ -180,45 +162,57 @@ uv run scripts/test_local_pipeline.py
 
 ---
 
-### Stage 3: クラウド結合テスト / 開発環境デプロイ（実機・Google OIDC）
+### Stage 3: クラウド & 社内結合テスト / 実機環境デプロイ（AWS DynamoDB + オンプレミス連携）
 
-**Lambda@Edge の Cookie 制御、Google OAuth 認可画面からのリダイレクト、CloudFront 経由のキャッシュ挙動など、本番と同一のインフラ環境で最終検証するステージです。**
+**AWS 側の DynamoDB 検索インデックスを CDK でデプロイし、オンプレミス Docker Compose 環境（OAuth2-Proxy, Nginx, Backend）と結合して最終検証するステージです。**
 
 #### 1. 前提準備 (Google Cloud Console)
 
 - [Google API Console](https://console.developers.google.com/) でプロジェクトを作成し、OAuth 同意画面を設定。
-- **Web アプリケーション クライアント**: CloudFront + Lambda@Edge 用（承認済みのリダイレクト URI に `https://<distribution-domain>/_callback` を登録）。
-- **デスクトップ アプリ クライアント**: CLI 用（承認済みのリダイレクト URI に `http://127.0.0.1` を登録）。
+- **Web アプリケーション クライアント**: OAuth2-Proxy 用（承認済みのリダイレクト URI に `https://<your-domain>/oauth2/callback` を登録）。
 
-#### 2. フロントエンドのビルド & CDK デプロイ
+#### 2. AWS クラウドリソースのデプロイ (CDK)
 
 ```sh
-# 1. SPA を本番ビルド (CloudFront アセット用)
-npm --prefix my-qa-dashboard run build
+# 1. CDK で DynamoDB テーブルとオンプレミス用 IAM ユーザーをデプロイ
+npm --prefix infra run build
+npx --prefix infra cdk deploy
 
-# 2. CLI 用の Google クライアント ID を環境変数にセットしてデプロイ
-export GOOGLE_CLIENT_ID="your-desktop-client-id.apps.googleusercontent.com"
-npx --prefix infra cdk deploy --all
+# 2. 作成された IAM ユーザー (GameQaDashboardOnpremUser) のアクセスキーを発行
 ```
 
-#### 3. CLI からの Google アカウント認証アップロード
+#### 3. オンプレミス Docker Compose 環境の起動
 
 ```sh
-# 初回のみブラウザが起動してログイン
-uv run cli/qa_upload.py login --google-client-id "$GOOGLE_CLIENT_ID"
+# 1. SPA を本番ビルド (Nginx で静的ホスティング)
+npm --prefix my-qa-dashboard run build
 
-# アップロード (次回以降は保存済みトークンで自動更新・非対話実行)
+# 2. 環境変数を設定 (Google OAuth クライアントID/シークレット、AWS クレデンシャル)
+cp onprem/.env.example onprem/.env
+# onprem/.env を編集してアクセスキー等を設定
+
+# 3. Docker Compose 起動 (Nginx, OAuth2-Proxy, Backend)
+docker compose -f onprem/docker-compose.yml up -d
+```
+
+#### 4. Web 画面で API キーを発行して CLI アップロード
+
+ブラウザでダッシュボードを開いて右上の「API Keys」から個人用 API キーを発行し、CLI からアップロードします：
+
+```sh
+export QA_SERVER_URL="http://localhost:8080"
+export QA_API_KEY="gqa_live_xxxxxxxxxxxxxxxxxxxxxxxx"
+
 uv run cli/qa_upload.py upload \
-  --bucket qa-data \
+  --server-url "$QA_SERVER_URL" \
+  --api-key "$QA_API_KEY" \
   --run-dir ./my-qa-dashboard/public/sample_data/run-001 \
   --run-id run-cloud-001 \
   --game-version v1.0.0 \
   --platform PS5 \
   --test-name Cloud_Verification \
   --result PASSED \
-  --avg-fps 59.9 \
-  --role-arn "<CDK出力の CliUploadRoleArn>" \
-  --google-client-id "$GOOGLE_CLIENT_ID"
+  --avg-fps 60.0
 ```
 
 ### オンプレミス本番・検証運用 (`onprem/`)

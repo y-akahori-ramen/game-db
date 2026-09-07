@@ -9,7 +9,7 @@ echo "Initializing LocalStack resources for Game QA Dashboard..."
 # 1. Create S3 Bucket
 awslocal s3 mb s3://qa-data --region ap-northeast-1 || true
 
-# 2. Create DynamoDB Table with GSIs matching infra/lib/search-index.ts
+# 2. Create DynamoDB Table with GSIs matching infra/lib/main-stack.ts
 awslocal dynamodb create-table \
     --table-name GameQaDashboard-SearchIndex \
     --region ap-northeast-1 \

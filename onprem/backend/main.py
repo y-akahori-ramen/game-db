@@ -377,7 +377,7 @@ def _execute_search(filter_payload: SearchFilter) -> list[dict[str, Any]]:
 
     query_kwargs: dict[str, Any] = {"ScanIndexForward": False, "Limit": 200}
 
-    # Query strategy matching existing infra/lambda/search/index.py
+    # Query strategy matching DynamoDB GSI index design
     if payload_dict.get("platform"):
         query_kwargs["IndexName"] = "platform-index"
         query_kwargs["KeyConditionExpression"] = Key("platform").eq(payload_dict["platform"])

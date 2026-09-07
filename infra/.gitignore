@@ -2,8 +2,6 @@ cdk.out/
 node_modules/
 
 # Compiled output of lib/ and bin/ TypeScript sources (tsc compiles in place, no outDir).
-# NOTE: infra/lambda/**/*.js are hand-written Lambda source files, not compiled output —
-# do not broaden these patterns to match them.
 /lib/**/*.js
 /lib/**/*.js.map
 /lib/**/*.d.ts
