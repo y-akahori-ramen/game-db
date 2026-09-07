@@ -12,8 +12,19 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - HTTP_PROXY=${HTTP_PROXY:-}
     volumes:
-      - qa_db:/data/db
-      - qa_data:/data/runs
+      - ${HOST_STORAGE_DB_PATH:-qa_db}:/data/db
+      - ${HOST_STORAGE_DATA_PATH:-qa_data}:/data/runs
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
     networks:
       - game_qa_net
 
@@ -37,6 +48,11 @@ services:
       - OAUTH2_PROXY_REDIRECT_URL=${APP_URL:-https://qa-dashboard.internal.example.com}/oauth2/callback
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - HTTP_PROXY=${HTTP_PROXY:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
     networks:
       - game_qa_net
 
@@ -49,20 +65,34 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ../my-qa-dashboard/dist:/usr/share/nginx/html:ro
-      - qa_data:/data:ro
+      - ${HOST_STORAGE_DATA_PATH:-qa_data}:/data/runs:ro
     depends_on:
-      - backend
-      - oauth2-proxy
+      backend:
+        condition: service_healthy
+      oauth2-proxy:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
     networks:
       - game_qa_net
 
 volumes:
-  # SQLite DB volume (Local fast SSD)
+  # SQLite DB volume (Local fast SSD fallback when HOST_STORAGE_DB_PATH is unset)
   qa_db:
     driver: local
-  # Large artifact storage (Local disk or host NAS directory)
+  # Large artifact storage (Host disk / NAS fallback when HOST_STORAGE_DATA_PATH is unset)
   qa_data:
     driver: local
+
 
 networks:
   game_qa_net:

@@ -28,10 +28,13 @@ game-db/
 │   ├── public/          # モックデータ (runs.json) および DuckDB-WASM セルフホストバイナリ
 │   └── scripts/         # サンプルデータ生成スクリプト (generate_sample_data.py)
 ├── onprem/              # 社内オンプレミス運用環境 (Docker Compose)
-│   ├── docker-compose.yml # Nginx + OAuth2-Proxy + Backend (FastAPI) 3コンテナ構成
-│   ├── nginx/           # 内部 Nginx 設定 (SPA配信, /data/* 高速直配信, OAuth2-Proxy連携)
-│   ├── backend/         # バックエンド API (検索, 大容量ストリーミングアップロード, APIキー管理, 自動クリーンアップ)
-│   └── .env.example     # 環境変数サンプル (Google OAuth, ストレージクォータ, DMZ設定)
+│   ├── docker-compose.yml # Nginx + OAuth2-Proxy + Backend (FastAPI) 3コンテナ構成 (Healthcheck, Logging)
+│   ├── deploy.sh        # 本番環境デプロイ & 検証スクリプト (Pre-flight チェック付き)
+│   ├── scripts/         # 運用スクリプト (backup_db.sh, run_cleanup.sh)
+│   ├── nginx/           # 内部 Nginx 設定 (SPA配信, /data/* 高速直配信, Gzip, セキュリティヘッダー, 監視バイパス)
+│   ├── backend/         # バックエンド API (検索, 大容量ストリーミングアップロード, APIキー管理, backup.py, cleanup.py)
+│   ├── .env.example     # 環境変数サンプル (Google OAuth, ストレージクォータ, 永続化ホストパス)
+│   └── README.md        # オンプレミス本番運用・障害復旧ガイド
 ├── cli/                 # QA テスト結果アップロード CLI (Python)
 │   ├── qa_upload.py     # アップロードスクリプト (HTTPストリーミング, 30GB制限撤廃, --overwrite改ざん保護対応)
 │   ├── test_qa_upload.py# CLI 単体テスト (28テスト)
@@ -160,14 +163,17 @@ uv run scripts/test_local_pipeline.py
 #### 2. オンプレミス Docker Compose 環境の起動
 
 ```sh
-# 1. SPA を本番ビルド (Nginx で静的ホスティング)
-npm --prefix my-qa-dashboard run build
-
-# 2. 環境変数を設定 (初回のみ)
+# 1. 環境変数を設定 (初回のみ)
 cp onprem/.env.example onprem/.env
-# onprem/.env を編集して Google OAuth のクライアントID/シークレット等を設定
+# onprem/.env を編集して Google OAuth のクライアントID/シークレット、永続ストレージパス等を設定
 
-# 3. Docker Compose 起動 (Nginx, OAuth2-Proxy, Backend)
+# 2. デプロイスクリプトを実行 (事前チェック・SPA自動ビルド・コンテナ起動・ヘルスチェック)
+cd onprem && ./deploy.sh
+```
+
+手動で起動する場合は以下を実行します：
+```sh
+npm --prefix my-qa-dashboard run build
 docker compose -f onprem/docker-compose.yml up -d
 ```
 
