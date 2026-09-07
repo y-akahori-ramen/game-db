@@ -18,18 +18,31 @@ let duckDbPromise: Promise<duckdb.AsyncDuckDB> | null = null;
 let duckDbError: Error | null = null;
 
 async function initDuckDB(): Promise<duckdb.AsyncDuckDB> {
-  const bundles = duckdb.getJsDelivrBundles();
+  const base = import.meta.env.BASE_URL || '/';
+  const cleanBase = base.endsWith('/') ? base : `${base}/`;
+  const bundles: duckdb.DuckDBBundles = {
+    mvp: {
+      mainModule: `${cleanBase}duckdb-wasm/duckdb-mvp.wasm`,
+      mainWorker: `${cleanBase}duckdb-wasm/duckdb-browser-mvp.worker.js`,
+    },
+    eh: {
+      mainModule: `${cleanBase}duckdb-wasm/duckdb-eh.wasm`,
+      mainWorker: `${cleanBase}duckdb-wasm/duckdb-browser-eh.worker.js`,
+    },
+  };
   const bundle = await duckdb.selectBundle(bundles);
-  const workerUrl = URL.createObjectURL(
-    new Blob([`importScripts("${bundle.mainWorker!}");`], {
+  const workerScriptUrl = new URL(bundle.mainWorker!, window.location.href).href;
+  const workerBlobUrl = URL.createObjectURL(
+    new Blob([`importScripts("${workerScriptUrl}");`], {
       type: 'text/javascript',
     }),
   );
-  const worker = new Worker(workerUrl);
+  const worker = new Worker(workerBlobUrl);
   const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING);
   const db = new duckdb.AsyncDuckDB(logger, worker);
-  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-  URL.revokeObjectURL(workerUrl);
+  const mainModuleUrl = new URL(bundle.mainModule, window.location.href).href;
+  await db.instantiate(mainModuleUrl, bundle.pthreadWorker);
+  URL.revokeObjectURL(workerBlobUrl);
   return db;
 }
 

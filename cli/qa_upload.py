@@ -1185,7 +1185,7 @@ def upload_manifest_http(
         body = err.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"HTTP {err.code} uploading manifest: {body}") from err
 
-    print("Uploaded manifest.json successfully (indexed into DynamoDB).")
+    print("Uploaded manifest.json successfully (indexed into search database).")
 
 
 def handle_upload(args: argparse.Namespace) -> int:

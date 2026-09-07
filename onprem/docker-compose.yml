@@ -6,17 +6,14 @@ services:
     container_name: game-qa-backend
     restart: unless-stopped
     environment:
-      - TABLE_NAME=${TABLE_NAME:-GameQaDashboard-SearchIndex}
-      - AWS_DEFAULT_REGION=${AWS_REGION:-ap-northeast-1}
-      - AWS_REGION=${AWS_REGION:-ap-northeast-1}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - STORAGE_PATH=/data
+      - DB_PATH=/data/db/qa.db
       - ALLOW_ANONYMOUS_UPLOAD=${ALLOW_ANONYMOUS_UPLOAD:-false}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - HTTP_PROXY=${HTTP_PROXY:-}
     volumes:
-      - qa_data:/data
+      - qa_db:/data/db
+      - qa_data:/data/runs
     networks:
       - game_qa_net
 
@@ -60,7 +57,10 @@ services:
       - game_qa_net
 
 volumes:
-  # Mount to local disk or host NAS directory by overriding in docker-compose.override.yml
+  # SQLite DB volume (Local fast SSD)
+  qa_db:
+    driver: local
+  # Large artifact storage (Local disk or host NAS directory)
   qa_data:
     driver: local
 

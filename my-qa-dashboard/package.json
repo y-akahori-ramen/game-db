@@ -4,7 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "copy:duckdb": "node scripts/copy_duckdb_wasm.js",
+    "predev": "npm run copy:duckdb",
     "dev": "vite",
+    "prebuild": "npm run copy:duckdb",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "node --experimental-strip-types scripts/test_log_analysis.ts && node --experimental-strip-types scripts/test_media_viewer.ts && node --experimental-strip-types scripts/test_router_params.ts && node --experimental-strip-types scripts/test_duckdb_queue.ts && node --experimental-strip-types scripts/test_trends.ts",

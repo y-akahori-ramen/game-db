@@ -16,6 +16,31 @@ export interface QueryParams {
   view?: string;
 }
 
+export function buildUrl(path: string, params?: QueryParams, base: string = '/'): string {
+  const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+  const [rawPathname, rawSearch] = path.split('?');
+  const cleanPath = rawPathname.startsWith('/') ? rawPathname : `/${rawPathname}`;
+  const fullPath = `${cleanBase}${cleanPath}`;
+
+  const searchParams = new URLSearchParams(rawSearch || '');
+  if (params?.t !== undefined && !isNaN(params.t)) {
+    searchParams.set('t', params.t.toFixed(params.t % 1 === 0 ? 0 : 2));
+  }
+  if (params?.log !== undefined && !isNaN(params.log)) {
+    searchParams.set('log', String(Math.round(params.log)));
+  }
+  if (params?.testName) searchParams.set('testName', params.testName);
+  if (params?.gameVersion) searchParams.set('gameVersion', params.gameVersion);
+  if (params?.platform) searchParams.set('platform', params.platform);
+  if (params?.status) searchParams.set('status', params.status);
+  if (params?.media) searchParams.set('media', params.media);
+  if (params?.range) searchParams.set('range', params.range);
+  if (params?.view) searchParams.set('view', params.view);
+
+  const query = searchParams.toString();
+  return query ? `${fullPath}?${query}` : fullPath;
+}
+
 export function normalizePathname(pathname: string, base: string = '/'): string {
   let path = pathname;
   if (base !== '/' && path.startsWith(base)) {

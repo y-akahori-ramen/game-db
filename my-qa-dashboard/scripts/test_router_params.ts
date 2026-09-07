@@ -113,6 +113,30 @@ assert.equal(parsedTrendsQuery.route.name, 'trends');
 assert.equal(parsedTrendsQuery.params.testName, 'Level1_Playthrough');
 console.log('✓ Query ?view=trends parses route and testName param correctly.');
 
+console.log('\n--- 7. Testing buildUrl & Prevention of Double-Query (?) Bug ---');
+import { buildUrl } from '../src/utils/routeHelpers.ts';
+
+// Test 7a: Simple path with params
+const simpleUrl = buildUrl('/runs/run-001', { log: 10, t: 5.5 });
+assert.equal(simpleUrl, '/runs/run-001?t=5.50&log=10');
+console.log('✓ buildUrl correctly builds URL for clean path with params.');
+
+// Test 7b: Path with existing query params (e.g. compare?a=...&b=...)
+const compareWithParams = buildUrl('/compare?a=run-001&b=run-002', { media: 'screenshot.png', t: 12 });
+assert.equal(
+  compareWithParams.indexOf('?'),
+  compareWithParams.lastIndexOf('?'),
+  'URL MUST contain at most one question mark (?)',
+);
+assert.equal(compareWithParams, '/compare?a=run-001&b=run-002&t=12&media=screenshot.png');
+console.log('✓ buildUrl safely merges query params without duplicate ? on compare routes.');
+
+// Test 7c: buildUrl with custom base
+const baseCompareUrl = buildUrl('/compare?a=run-001&b=run-002', { view: 'overview' }, '/dashboard/');
+assert.equal(baseCompareUrl, '/dashboard/compare?a=run-001&b=run-002&view=overview');
+assert.equal(baseCompareUrl.indexOf('?'), baseCompareUrl.lastIndexOf('?'));
+console.log('✓ buildUrl with custom base path formats correctly.');
+
 console.log('\n========================================');
 console.log('All Router Params & Direct URL Parsing unit verification tests PASSED!');
 console.log('========================================');

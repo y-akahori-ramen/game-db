@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import {
+  buildUrl as helperBuildUrl,
   mergeQueryParams,
   normalizePathname,
   parseRouteFromLocation,
@@ -8,7 +9,7 @@ import {
   type RouteState,
 } from '../utils/routeHelpers';
 export type { QueryParams, RouteState };
-export { mergeQueryParams, normalizePathname, parseRouteFromLocation };
+export { helperBuildUrl as buildUrl, mergeQueryParams, normalizePathname, parseRouteFromLocation };
 
 function parseRoute(): { route: RouteState; params: QueryParams } {
   const base = import.meta.env.BASE_URL || '/';
@@ -17,27 +18,7 @@ function parseRoute(): { route: RouteState; params: QueryParams } {
 
 function buildUrl(path: string, params?: QueryParams): string {
   const base = import.meta.env.BASE_URL || '/';
-  const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  const fullPath = `${cleanBase}${cleanPath}`;
-
-  const searchParams = new URLSearchParams();
-  if (params?.t !== undefined && !isNaN(params.t)) {
-    searchParams.set('t', params.t.toFixed(params.t % 1 === 0 ? 0 : 2));
-  }
-  if (params?.log !== undefined && !isNaN(params.log)) {
-    searchParams.set('log', String(Math.round(params.log)));
-  }
-  if (params?.testName) searchParams.set('testName', params.testName);
-  if (params?.gameVersion) searchParams.set('gameVersion', params.gameVersion);
-  if (params?.platform) searchParams.set('platform', params.platform);
-  if (params?.status) searchParams.set('status', params.status);
-  if (params?.media) searchParams.set('media', params.media);
-  if (params?.range) searchParams.set('range', params.range);
-  if (params?.view) searchParams.set('view', params.view);
-
-  const query = searchParams.toString();
-  return query ? `${fullPath}?${query}` : fullPath;
+  return helperBuildUrl(path, params, base);
 }
 
 export function useAppRouter() {
@@ -76,9 +57,7 @@ export function useAppRouter() {
   }, []);
 
   const navigateToCompare = useCallback((runA: string, runB: string) => {
-    const base = import.meta.env.BASE_URL || '/';
-    const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
-    const targetUrl = `${cleanBase}/compare?a=${encodeURIComponent(runA)}&b=${encodeURIComponent(runB)}`;
+    const targetUrl = buildUrl(`/compare?a=${encodeURIComponent(runA)}&b=${encodeURIComponent(runB)}`);
     window.history.pushState(null, '', targetUrl);
     setRouteInfo({
       route: { name: 'compare', compareRunIds: [runA, runB] },
@@ -130,9 +109,10 @@ export function useAppRouter() {
   const getShareableUrl = useCallback(
     (runIdOrRunIds: string | [string, string], params?: QueryParams): string => {
       if (Array.isArray(runIdOrRunIds)) {
-        const base = import.meta.env.BASE_URL || '/';
-        const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
-        const relativeUrl = `${cleanBase}/compare?a=${encodeURIComponent(runIdOrRunIds[0])}&b=${encodeURIComponent(runIdOrRunIds[1])}`;
+        const relativeUrl = buildUrl(
+          `/compare?a=${encodeURIComponent(runIdOrRunIds[0])}&b=${encodeURIComponent(runIdOrRunIds[1])}`,
+          params,
+        );
         return `${window.location.origin}${relativeUrl}`;
       }
       const relativeUrl = buildUrl(`/runs/${encodeURIComponent(runIdOrRunIds)}`, params);

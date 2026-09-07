@@ -7,10 +7,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY main.py .
+COPY main.py db.py ./
 
 # Storage directory
-RUN mkdir -p /data/runs
+RUN mkdir -p /data/runs /data/db
 
 EXPOSE 8000
 
