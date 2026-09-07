@@ -1,7 +1,13 @@
-# アーキテクチャ設計書 — Game QA Analytics Dashboard
+# アーキテクチャ設計書 — Game QA Analytics Dashboard [ARCHIVED / DEPRECATED]
+
+> **注意 / NOTICE: 本ハイブリッド設計（AWS DynamoDB）は廃止されました**  
+> `docs/architecture-improvement-plan.md` (Phase 3) に基づき、検索インデックスは AWS DynamoDB からバックエンド組み込みの **SQLite (WALモード)** へ完全移行しました。
+> クラウド依存（AWS アカウント、DynamoDB、IAM ユーザー、CDK）は全廃され、完全オンプレミス自律構成として運用されています。
+> 現在の推奨アーキテクチャ設計は [`docs/architecture-improvement-plan.md`](architecture-improvement-plan.md) を参照してください。
 
 作成日: 2026-08-02  
 改訂日: 2026-09-07（社内DMZオンプレミス移行、CloudFront 30GB制限撤廃、自律型ストレージ・APIキー管理、AWS DynamoDB ハイブリッド連携）
+廃止日: 2026-09-07（Phase 3: SQLite WAL完全移行および AWS CDK / DynamoDB の完全廃止）
 
 ---
 

@@ -330,3 +330,56 @@ def verify_api_key(api_key: str) -> Optional[dict[str, Any]]:
             except Exception:
                 pass
         return dict(row)
+
+
+def get_runs_older_than(cutoff_iso: str) -> list[dict[str, Any]]:
+    """Retrieve test runs executed before the specified ISO timestamp."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT * FROM test_runs WHERE executed_at < ? ORDER BY executed_at ASC",
+            (cutoff_iso,),
+        )
+        rows = cursor.fetchall()
+        return [row_to_summary(row) for row in rows]
+
+
+def purge_run_artifacts(
+    run_id: str,
+    purged_file_names: set[str],
+    clear_video: bool = False,
+) -> bool:
+    """Update SQLite record after artifacts have been purged from disk.
+
+    Marks purged artifacts with 'purged': True and clears video_url if clear_video is True.
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT artifacts_json, video_url FROM test_runs WHERE run_id = ?",
+            (run_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+
+        try:
+            artifacts = json.loads(row["artifacts_json"]) if row["artifacts_json"] else []
+        except Exception:
+            artifacts = []
+
+        for art in artifacts:
+            fn = art.get("fileName")
+            if fn in purged_file_names:
+                art["purged"] = True
+
+        new_artifacts_json = json.dumps(artifacts)
+        if clear_video:
+            conn.execute(
+                "UPDATE test_runs SET artifacts_json = ?, video_url = NULL WHERE run_id = ?",
+                (new_artifacts_json, run_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE test_runs SET artifacts_json = ? WHERE run_id = ?",
+                (new_artifacts_json, run_id),
+            )
+        return True

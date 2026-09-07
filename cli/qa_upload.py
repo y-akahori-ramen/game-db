@@ -575,6 +575,11 @@ def parse_args() -> argparse.Namespace:
         help="Allow files larger than 30 GiB without error (automatically enabled for --server-url).",
     )
     upload.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Allow overwriting an existing finalized run on the server (HTTP 409 bypass).",
+    )
+    upload.add_argument(
         "--run-dir",
         required=True,
         type=Path,
@@ -1120,8 +1125,10 @@ def upload_file_http(
     run_id: str,
     file_name: str,
     file_path: Path,
+    overwrite: bool = False,
 ) -> None:
-    endpoint = server_url.rstrip("/") + f"/api/upload/runs/{run_id}/{file_name}"
+    query = "?overwrite=true" if overwrite else ""
+    endpoint = server_url.rstrip("/") + f"/api/upload/runs/{run_id}/{file_name}{query}"
     file_size = file_path.stat().st_size
     print(f"Uploading {file_name} ({human_size(file_size)}) -> {endpoint} ...")
 
@@ -1140,6 +1147,11 @@ def upload_file_http(
                     raise RuntimeError(f"HTTP upload failed with status {resp.status}")
         except urllib.error.HTTPError as err:
             body = err.read().decode("utf-8", errors="replace")
+            if err.code == 409:
+                raise RuntimeError(
+                    f"Run '{run_id}' is already finalized on server (HTTP 409 Conflict). "
+                    f"Use --overwrite to allow replacing existing run data.\nServer response: {body}"
+                ) from err
             raise RuntimeError(f"HTTP {err.code} uploading {file_name}: {body}") from err
 
     print(f"Uploaded {file_name} successfully.")
@@ -1150,10 +1162,13 @@ def upload_child_files_http(
     api_key: str | None,
     run_id: str,
     uploads: list[UploadFile],
+    overwrite: bool = False,
 ) -> None:
     print(f"Uploading {len(uploads)} child files via HTTP to {server_url} ...")
     for u in uploads:
-        upload_file_http(server_url, api_key, run_id, u.local_path.name, u.local_path)
+        upload_file_http(
+            server_url, api_key, run_id, u.local_path.name, u.local_path, overwrite=overwrite
+        )
 
 
 def upload_manifest_http(
@@ -1161,8 +1176,10 @@ def upload_manifest_http(
     api_key: str | None,
     run_id: str,
     manifest: dict[str, Any],
+    overwrite: bool = False,
 ) -> None:
-    endpoint = server_url.rstrip("/") + f"/api/upload/runs/{run_id}/manifest.json"
+    query = "?overwrite=true" if overwrite else ""
+    endpoint = server_url.rstrip("/") + f"/api/upload/runs/{run_id}/manifest.json{query}"
     manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
     print(f"Uploading manifest ({human_size(len(manifest_bytes))}) -> {endpoint} ...")
 
@@ -1183,6 +1200,11 @@ def upload_manifest_http(
                 raise RuntimeError(f"HTTP manifest upload failed with status {resp.status}")
     except urllib.error.HTTPError as err:
         body = err.read().decode("utf-8", errors="replace")
+        if err.code == 409:
+            raise RuntimeError(
+                f"Run '{run_id}' is already finalized on server (HTTP 409 Conflict). "
+                f"Use --overwrite to allow replacing existing run data.\nServer response: {body}"
+            ) from err
         raise RuntimeError(f"HTTP {err.code} uploading manifest: {body}") from err
 
     print("Uploaded manifest.json successfully (indexed into search database).")
@@ -1205,15 +1227,20 @@ def handle_upload(args: argparse.Namespace) -> int:
 
         server_url = args.server_url or os.environ.get("QA_SERVER_URL")
         api_key = args.api_key or os.environ.get("QA_API_KEY")
+        overwrite = getattr(args, "overwrite", False)
 
         if server_url:
             # ------------------------------------------------------------------
             # On-premises HTTP upload mode (30GB limit bypassed)
             # ------------------------------------------------------------------
             print(f"Targeting on-premises server: {server_url}")
-            upload_child_files_http(server_url, api_key, args.run_id, uploads)
+            upload_child_files_http(
+                server_url, api_key, args.run_id, uploads, overwrite=overwrite
+            )
             manifest = build_manifest(args, uploads)
-            upload_manifest_http(server_url, api_key, args.run_id, manifest)
+            upload_manifest_http(
+                server_url, api_key, args.run_id, manifest, overwrite=overwrite
+            )
         else:
             # ------------------------------------------------------------------
             # Traditional AWS S3 upload mode

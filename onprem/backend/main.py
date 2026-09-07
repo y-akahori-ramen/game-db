@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import posixpath
+import shutil
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+import cleanup
 import db
 
 logging.basicConfig(
@@ -34,8 +36,45 @@ LOGGER = logging.getLogger("qa-backend")
 STORAGE_PATH = Path(os.environ.get("STORAGE_PATH", "/data")).resolve()
 RUNS_DIR = STORAGE_PATH / "runs"
 
+MIN_DISK_FREE_PERCENT = float(os.environ.get("MIN_DISK_FREE_PERCENT", "10.0"))
+MIN_DISK_FREE_BYTES = int(os.environ.get("MIN_DISK_FREE_BYTES", str(1024 * 1024 * 1024)))
+
 # Ensure base directories exist
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _get_disk_usage(path: Path) -> dict[str, Any]:
+    try:
+        total, used, free = shutil.disk_usage(path)
+        free_percent = (free / total * 100.0) if total > 0 else 0.0
+        return {
+            "total_bytes": total,
+            "used_bytes": used,
+            "free_bytes": free,
+            "free_percent": round(free_percent, 2),
+        }
+    except Exception as exc:
+        LOGGER.warning("Failed to get disk usage for %s: %s", path, exc)
+        return {
+            "total_bytes": 0,
+            "used_bytes": 0,
+            "free_bytes": 0,
+            "free_percent": 100.0,
+        }
+
+
+def _check_disk_quota(path: Path) -> None:
+    usage = _get_disk_usage(path)
+    if usage["total_bytes"] > 0:
+        if usage["free_percent"] < MIN_DISK_FREE_PERCENT or usage["free_bytes"] < MIN_DISK_FREE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_507_INSUFFICIENT_STORAGE,
+                detail=(
+                    f"Insufficient storage space: {usage['free_percent']}% free "
+                    f"({usage['free_bytes']} bytes free). "
+                    f"Required minimum: {MIN_DISK_FREE_PERCENT}% or {MIN_DISK_FREE_BYTES} bytes."
+                ),
+            )
 
 
 @asynccontextmanager
@@ -46,9 +85,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Game QA Dashboard Backend", version="1.0.0", lifespan=lifespan)
 
+allowed_origins_env = os.environ.get("ALLOWED_ORIGINS", "").strip()
+if allowed_origins_env and allowed_origins_env != "*":
+    allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+    origin_regex = None
+else:
+    allowed_origins = []
+    origin_regex = r"^https?://(localhost|127\.0\.0\.1|.*\.internal\.example\.com)(:[0-9]+)?$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins if allowed_origins else [],
+    allow_origin_regex=origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -135,12 +183,43 @@ def _authenticate_upload_request(request: Request) -> None:
 
 
 # ==============================================================================
-# Health Check
+# Health & Storage Routes
 # ==============================================================================
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/api/storage/status")
+def storage_status() -> dict[str, Any]:
+    usage = _get_disk_usage(RUNS_DIR)
+    return {
+        "storagePath": str(STORAGE_PATH),
+        "runsDir": str(RUNS_DIR),
+        "totalBytes": usage["total_bytes"],
+        "usedBytes": usage["used_bytes"],
+        "freeBytes": usage["free_bytes"],
+        "freePercent": usage["free_percent"],
+        "minFreePercent": MIN_DISK_FREE_PERCENT,
+        "minFreeBytes": MIN_DISK_FREE_BYTES,
+    }
+
+
+@app.post("/api/storage/cleanup")
+def trigger_cleanup(
+    request: Request,
+    days: int = Query(default=30, ge=1),
+    dry_run: bool = Query(default=False),
+    min_size_mb: Optional[float] = Query(default=None, ge=0.0),
+) -> dict[str, Any]:
+    _authenticate_upload_request(request)
+    return cleanup.cleanup_expired_runs(
+        days=days,
+        dry_run=dry_run,
+        min_size_mb=min_size_mb,
+        runs_dir=RUNS_DIR,
+    )
 
 
 # ==============================================================================
@@ -175,7 +254,12 @@ def delete_key(key_id: str, request: Request) -> Response:
 
 @app.put("/api/upload/runs/{run_id}/{file_name}")
 @app.post("/api/upload/runs/{run_id}/{file_name}")
-async def upload_file(run_id: str, file_name: str, request: Request) -> dict[str, Any]:
+async def upload_file(
+    run_id: str,
+    file_name: str,
+    request: Request,
+    overwrite: bool = Query(default=False, description="Allow overwriting an already finalized run"),
+) -> dict[str, Any]:
     """Streams request body asynchronously directly to disk under /data/runs/{run_id}/{file_name}.
 
     If file_name is manifest.json, parses it and indexes into SQLite.
@@ -191,7 +275,19 @@ async def upload_file(run_id: str, file_name: str, request: Request) -> dict[str
     if not clean_file_name or clean_file_name in (".", ".."):
         raise HTTPException(status_code=400, detail="Invalid file_name")
 
+    # Check disk quota before accepting upload (HTTP 507)
+    _check_disk_quota(RUNS_DIR)
+
     run_dir = RUNS_DIR / clean_run_id
+    manifest_file = run_dir / "manifest.json"
+
+    # Run tamper protection: reject upload to finalized runs unless overwrite=true (HTTP 409)
+    if manifest_file.exists() and not overwrite:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Run '{clean_run_id}' is already finalized. To overwrite existing run data, specify overwrite=true.",
+        )
+
     run_dir.mkdir(parents=True, exist_ok=True)
     target_file = run_dir / clean_file_name
     temp_file = run_dir / f".{clean_file_name}.tmp"

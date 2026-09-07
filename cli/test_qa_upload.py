@@ -557,6 +557,21 @@ class TestCliParser(unittest.TestCase):
             self.assertEqual(args.server_url, "http://localhost:8080")
             self.assertEqual(args.api_key, "gqa_live_secret123")
             self.assertIsNone(args.bucket)
+            self.assertFalse(args.overwrite)
+
+        with patch("sys.argv", [
+            "qa_upload.py", "upload",
+            "--run-dir", "/dummy/dir",
+            "--run-id", "run-123",
+            "--game-version", "1",
+            "--platform", "PS5",
+            "--test-name", "T",
+            "--result", "PASSED",
+            "--avg-fps", "60.0",
+            "--overwrite",
+        ]):
+            args = qa_upload.parse_args()
+            self.assertTrue(args.overwrite)
 
 
 class TestHttpUpload(unittest.TestCase):
@@ -585,6 +600,29 @@ class TestHttpUpload(unittest.TestCase):
         self.assertEqual(req.headers.get("X-api-key"), "secret-key")
 
     @patch("urllib.request.urlopen")
+    def test_upload_file_http_with_overwrite(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        with tempfile.NamedTemporaryFile() as tmp:
+            tmp.write(b"fps,time\n60,1.0")
+            tmp.flush()
+            qa_upload.upload_file_http(
+                server_url="http://localhost:8080",
+                api_key="secret-key",
+                run_id="run-123",
+                file_name="fps.csv",
+                file_path=Path(tmp.name),
+                overwrite=True,
+            )
+
+        req = mock_urlopen.call_args[0][0]
+        self.assertEqual(
+            req.full_url, "http://localhost:8080/api/upload/runs/run-123/fps.csv?overwrite=true"
+        )
+
+    @patch("urllib.request.urlopen")
     def test_upload_manifest_http(self, mock_urlopen):
         mock_resp = MagicMock()
         mock_resp.status = 201
@@ -603,6 +641,54 @@ class TestHttpUpload(unittest.TestCase):
         self.assertEqual(req.get_method(), "PUT")
         self.assertEqual(req.full_url, "http://localhost:8080/api/upload/runs/run-123/manifest.json")
         self.assertEqual(req.headers.get("Content-type"), "application/json")
+
+    @patch("urllib.request.urlopen")
+    def test_upload_manifest_http_with_overwrite(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        manifest = {"run_id": "run-123", "result": "PASSED"}
+        qa_upload.upload_manifest_http(
+            server_url="http://localhost:8080",
+            api_key="secret-key",
+            run_id="run-123",
+            manifest=manifest,
+            overwrite=True,
+        )
+
+        req = mock_urlopen.call_args[0][0]
+        self.assertEqual(
+            req.full_url, "http://localhost:8080/api/upload/runs/run-123/manifest.json?overwrite=true"
+        )
+
+    @patch("urllib.request.urlopen")
+    def test_upload_file_http_conflict_409(self, mock_urlopen):
+        import io
+        import urllib.error
+
+        fp = io.BytesIO(b'{"detail":"Run run-123 is already finalized"}')
+        mock_urlopen.side_effect = urllib.error.HTTPError(
+            url="http://localhost:8080/api/upload/runs/run-123/fps.csv",
+            code=409,
+            msg="Conflict",
+            hdrs={},  # type: ignore[arg-type]
+            fp=fp,
+        )
+
+        with tempfile.NamedTemporaryFile() as tmp:
+            tmp.write(b"data")
+            tmp.flush()
+            with self.assertRaises(RuntimeError) as ctx:
+                qa_upload.upload_file_http(
+                    server_url="http://localhost:8080",
+                    api_key="secret-key",
+                    run_id="run-123",
+                    file_name="fps.csv",
+                    file_path=Path(tmp.name),
+                )
+            self.assertIn("409 Conflict", str(ctx.exception))
+            self.assertIn("--overwrite", str(ctx.exception))
 
 
 if __name__ == "__main__":

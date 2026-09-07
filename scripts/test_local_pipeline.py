@@ -272,8 +272,127 @@ def run_pipeline_test() -> bool:
         assert len(runs_failed) == 0
         print("   [OK] Filter status=FAILED correctly returned 0 runs.")
 
-        # 11. Delete API key and verify revocation
-        print(f"\n11. Revoking API key {key_id} via DELETE /api/keys/{key_id}...")
+        # 11. Run tamper protection: re-uploading without --overwrite must fail with 409 Conflict
+        print("\n11. Testing run tamper protection (HTTP 409 Conflict)...")
+        conflict_req = urllib.request.Request(
+            f"{server_url}/api/upload/runs/{run_id}/dummy_tamper.txt",
+            data=b"tamper content",
+            headers={"Authorization": f"Bearer {api_key}"},
+            method="PUT",
+        )
+        try:
+            urllib.request.urlopen(conflict_req)
+            print("   [FAIL] Expected HTTP 409 Conflict on finalized run upload!", file=sys.stderr)
+            server_thread.stop()
+            return False
+        except urllib.error.HTTPError as err:
+            assert err.code == 409, f"Expected 409 Conflict, got {err.code}"
+            print("   [OK] Finalized run modification correctly rejected with 409 Conflict.")
+
+        # 12. Run overwrite: uploading with ?overwrite=true must succeed
+        print("\n12. Testing run overwrite (?overwrite=true)...")
+        overwrite_req = urllib.request.Request(
+            f"{server_url}/api/upload/runs/{run_id}/dummy_updated.txt?overwrite=true",
+            data=b"authorized overwrite content",
+            headers={"Authorization": f"Bearer {api_key}"},
+            method="PUT",
+        )
+        with urllib.request.urlopen(overwrite_req) as resp:
+            assert resp.status == 200
+        assert (storage_path / "runs" / run_id / "dummy_updated.txt").exists()
+        print("   [OK] Upload with overwrite=true succeeded.")
+
+        # 13. Storage status & quota check (507 Insufficient Storage)
+        print("\n13. Testing storage status and quota check (HTTP 507)...")
+        status_req = urllib.request.Request(f"{server_url}/api/storage/status")
+        with urllib.request.urlopen(status_req) as resp:
+            assert resp.status == 200
+            st_data = json.loads(resp.read().decode("utf-8"))
+        assert "totalBytes" in st_data and "freeBytes" in st_data
+        print(f"   [OK] Storage status: {st_data['freePercent']}% free ({st_data['freeBytes']} bytes).")
+
+        # Simulate low disk space by raising MIN_DISK_FREE_PERCENT to 100%
+        original_quota = backend_main.MIN_DISK_FREE_PERCENT
+        try:
+            backend_main.MIN_DISK_FREE_PERCENT = 100.0  # Force quota failure
+            quota_req = urllib.request.Request(
+                f"{server_url}/api/upload/runs/run-quota-test/file.txt",
+                data=b"quota test",
+                headers={"Authorization": f"Bearer {api_key}"},
+                method="PUT",
+            )
+            try:
+                urllib.request.urlopen(quota_req)
+                print("   [FAIL] Expected HTTP 507 Insufficient Storage!", file=sys.stderr)
+                server_thread.stop()
+                return False
+            except urllib.error.HTTPError as err:
+                assert err.code == 507, f"Expected 507, got {err.code}"
+                print("   [OK] Upload correctly rejected with 507 Insufficient Storage.")
+        finally:
+            backend_main.MIN_DISK_FREE_PERCENT = original_quota
+
+        # 14. Automated large-file cleanup
+        print("\n14. Testing automated large-file cleanup for expired runs...")
+        import cleanup
+        cleanup.RUNS_DIR = storage_path / "runs"
+
+        # Create an expired run from 45 days ago
+        from datetime import datetime, timedelta, timezone
+        expired_id = "run-expired-45days"
+        expired_dir = storage_path / "runs" / expired_id
+        expired_dir.mkdir(parents=True, exist_ok=True)
+        (expired_dir / "fps_metrics.csv").write_text("frame,fps\n1,60.0\n", encoding="utf-8")
+        (expired_dir / "memory_metrics.csv").write_text("timestamp,used_mb\n1,2000\n", encoding="utf-8")
+        (expired_dir / "ue.log").write_text("[2026.07.20] log\n", encoding="utf-8")
+        (expired_dir / "capture.mp4").write_bytes(b"\x00" * 4096)
+        (expired_dir / "crash.dmp").write_bytes(b"\x00" * 2048)
+        exp_manifest = {
+            "run_id": expired_id,
+            "executed_at": (datetime.now(timezone.utc) - timedelta(days=45)).isoformat(),
+            "game_version": "v1.0.0",
+            "platform": "PS5",
+            "test_name": "OldBossTest",
+            "status": "FAILED",
+            "artifacts": [
+                {"fileName": "fps_metrics.csv", "type": "fps"},
+                {"fileName": "memory_metrics.csv", "type": "memory"},
+                {"fileName": "ue.log", "type": "log"},
+                {"fileName": "capture.mp4", "type": "video"},
+                {"fileName": "crash.dmp", "type": "dump"},
+            ],
+        }
+        (expired_dir / "manifest.json").write_text(json.dumps(exp_manifest), encoding="utf-8")
+        db.upsert_run(
+            run_id=expired_id,
+            executed_at=exp_manifest["executed_at"],
+            game_version="v1.0.0",
+            platform="PS5",
+            test_name="OldBossTest",
+            status="FAILED",
+            artifacts=exp_manifest["artifacts"],
+            video_url=f"/data/runs/{expired_id}/capture.mp4",
+        )
+
+        clean_summary = cleanup.cleanup_expired_runs(days=30, dry_run=False, runs_dir=cleanup.RUNS_DIR)
+        assert clean_summary["runs_purged"] == 1
+        assert clean_summary["files_purged"] == 2
+        # Verify preserved files
+        assert (expired_dir / "manifest.json").exists()
+        assert (expired_dir / "fps_metrics.csv").exists()
+        assert (expired_dir / "memory_metrics.csv").exists()
+        assert (expired_dir / "ue.log").exists()
+        # Verify purged files
+        assert not (expired_dir / "capture.mp4").exists()
+        assert not (expired_dir / "crash.dmp").exists()
+        # Verify SQLite updated
+        exp_db_run = db.get_run_by_id(expired_id)
+        assert exp_db_run is not None
+        assert "videoUrl" not in exp_db_run
+        print("   [OK] Large files (video, dump) purged; metrics, logs, and manifest preserved.")
+
+        # 15. Delete API key and verify revocation
+        print(f"\n15. Revoking API key {key_id} via DELETE /api/keys/{key_id}...")
         del_req = urllib.request.Request(
             f"{server_url}/api/keys/{key_id}",
             headers={"X-Forwarded-Email": "qa-tester@example.com"},

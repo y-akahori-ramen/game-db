@@ -1,64 +1,38 @@
-# Game QA Dashboard CDK app
+# Game QA Dashboard CDK app [DEPRECATED / RETIRED]
 
-社内オンプレミス環境と連携する AWS クラウドリソース（DynamoDB 検索インデックスおよびオンプレミス専用 IAM ユーザー）を管理する CDK アプリケーションです。
+> **警告 / WARNING: 本 CDK スタックは廃止（Retired）されました**  
+> `docs/architecture-improvement-plan.md` (Phase 3) に基づき、検索インデックスは AWS DynamoDB からオンプレミス組み込みの **SQLite (WALモード)** へ完全に移行しました。
+> 現在の本番運用環境（Docker Compose）では AWS クラウドリソース（DynamoDB、専用 IAM ユーザー、ポリシー）は一切使用されていません。
 
-## 前提条件
+---
+
+## 既存 AWS クラウドリソースの破棄手順 (Teardown / Decommission)
+
+過去に本 CDK スタックを AWS アカウントにデプロイしていた場合は、不要なクラウドリソースおよびコストを削減するため、以下のコマンドでスタックを破棄（削除）してください。
+
+### 前提条件
 
 - Node.js (v20+)
 - AWS CLI & AWS CDK v2 (`npm install -g aws-cdk`)
-- 対象 AWS アカウントのブートストラップ（単一リージョン: `ap-northeast-1`）
+- デプロイ先の AWS 認証情報（`AWS_PROFILE` または環境変数 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`）
 
-## インストール
+### 破棄コマンド
 
 ```sh
 cd infra
 npm install
+
+# 破棄の実行 (DynamoDB テーブルおよび IAM ユーザーの削除)
+npx cdk destroy GameQaDashboardStack
 ```
 
-## 管理リソース (`lib/main-stack.ts`)
+> **注意**: DynamoDB テーブルの RemovalPolicy が `RETAIN` に設定されていた場合は、AWS マネジメントコンソールまたは AWS CLI（`aws dynamodb delete-table --table-name GameQaDashboard-SearchIndex`）から手動でテーブルを削除してください。
 
-1. **DynamoDB テーブル** (`GameQaDashboard-SearchIndex`):
-   - パーティションキー: `runId` (String)
-   - 課金モード: `PAY_PER_REQUEST`（オンデマンド）
-   - ポイントインタイムリカバリ (PITR): 有効
-   - GSI (3つ):
-     - `platform-index` (PK: `platform`, SK: `executedAt`)
-     - `status-index` (PK: `status`, SK: `executedAt`)
-     - `all-index` (PK: `gsiAllPk`, SK: `executedAt`)
-2. **オンプレミス連携専用 IAM ユーザー** (`GameQaDashboardOnpremUser`):
-   - オンプレミス Docker Compose バックエンドから DynamoDB へ最小権限で接続するための IAM ユーザー。
-3. **最小権限 IAM ポリシー** (`GameQaDashboardOnpremDynamoDbAccess`):
-   - 対象テーブルおよび GSI に対する CRUD / Query / Scan のみを許可（[`onprem-dynamodb-policy.json`](onprem-dynamodb-policy.json) 準拠）。
+---
 
-## テンプレート合成 (Synthesize)
+## 移行先アーキテクチャ
 
-```sh
-npx cdk synth
-```
-
-## デプロイ (Deploy)
-
-```sh
-# 必要に応じてテーブル名を環境変数でカスタマイズ可能 (デフォルト: GameQaDashboard-SearchIndex)
-export TABLE_NAME="GameQaDashboard-SearchIndex"
-
-npx cdk deploy
-```
-
-### デプロイ後のセットアップ
-
-1. **IAM アクセスキーの発行**:
-   - デプロイ完了後、作成された IAM ユーザー (`GameQaDashboardOnpremUser`) のアクセスキー（Access Key ID / Secret Access Key）を AWS マネジメントコンソールまたは AWS CLI で発行します。
-
-2. **オンプレミス環境への設定**:
-   - 発行したクレデンシャルを `onprem/.env` に設定します：
-     ```env
-     AWS_ACCESS_KEY_ID=AKIA...
-     AWS_SECRET_ACCESS_KEY=...
-     AWS_DEFAULT_REGION=ap-northeast-1
-     TABLE_NAME=GameQaDashboard-SearchIndex
-     ```
-   - その後、オンプレミス環境を起動します：
-     ```sh
-     docker compose -f onprem/docker-compose.yml up -d
-     ```
+オンプレミス環境（`onprem/`）内で稼働する **FastAPI + SQLite (WALモード)** により、すべての検索・メタデータ管理がローカルストレージ（`/data/db/qa.db`）上で完結しています。
+詳細は以下を参照してください：
+- [`docs/architecture-improvement-plan.md`](../docs/architecture-improvement-plan.md)
+- [`onprem/backend/`](../onprem/backend/)
