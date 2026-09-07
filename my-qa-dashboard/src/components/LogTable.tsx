@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   AlertCircle,
   AlertTriangle,
@@ -36,7 +37,7 @@ interface Props {
   logsReady: boolean;
   dbReady: boolean;
   targetLine?: number | null;
-  onSelectLine?: (lineNumber: number | null) => void;
+  onSelectLine?: (lineNumber: number | null, timestamp?: number | null) => void;
 }
 
 export const UE_LOG_TABLE = 'ue_logs';
@@ -67,6 +68,7 @@ interface DisplayLogEntry {
   lineNumber: number;
   frame: number | null;
   timestamp: string;
+  timestampSeconds?: number | null;
   level: string;
   badgeLabel: string;
   category: string;
@@ -192,6 +194,7 @@ export default function LogTable({
             line_number AS "lineNumber",
             frame,
             COALESCE(timestamp_raw, '-') AS "timestamp",
+            timestamp AS "timestampSeconds",
             level,
             verbosity AS "badgeLabel",
             category,
@@ -238,6 +241,7 @@ export default function LogTable({
           line_number AS "lineNumber",
           frame,
           COALESCE(timestamp_raw, '-') AS "timestamp",
+          timestamp AS "timestampSeconds",
           level,
           verbosity AS "badgeLabel",
           category,
@@ -275,15 +279,28 @@ export default function LogTable({
     return () => clearTimeout(timer);
   }, [ready, runQuery]);
 
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => 36,
+    overscan: 25,
+  });
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingBottom =
+    virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1].end : 0;
+
   // Auto-scroll to targetLine when rows load or targetLine changes
   useEffect(() => {
     const focusLine = contextTargetLine ?? targetLine;
     if (!focusLine || rows.length === 0) return;
-    const rowEl = document.getElementById(`log-row-${focusLine}`);
-    if (rowEl) {
-      rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const rowIndex = rows.findIndex((r) => r.lineNumber === focusLine);
+    if (rowIndex !== -1) {
+      rowVirtualizer.scrollToIndex(rowIndex, { align: 'center', behavior: 'smooth' });
     }
-  }, [targetLine, contextTargetLine, rows]);
+  }, [targetLine, contextTargetLine, rows, rowVirtualizer]);
 
   // Handle local file upload
   const handleFileChange = useCallback(
@@ -330,11 +347,14 @@ export default function LogTable({
 
   // Copy shareable URL link to clipboard
   const handleCopyLink = useCallback(
-    (lineNumber: number, e?: React.MouseEvent) => {
+    (lineNumber: number, timestamp?: number | null, e?: React.MouseEvent) => {
       e?.stopPropagation();
-      onSelectLine?.(lineNumber);
+      onSelectLine?.(lineNumber, timestamp);
       const url = new URL(window.location.href);
       url.searchParams.set('log', String(lineNumber));
+      if (timestamp !== undefined && timestamp !== null) {
+        url.searchParams.set('t', String(Number(timestamp.toFixed(2))));
+      }
       navigator.clipboard.writeText(url.toString());
       setCopiedLinkLine(lineNumber);
       setToastMessage(`行 #${lineNumber} へのリンクをコピーしました`);
@@ -748,7 +768,10 @@ export default function LogTable({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={(e) => handleCopyLink(targetLine, e)}
+              onClick={(e) => {
+                const targetRow = rows.find((r) => r.lineNumber === targetLine);
+                handleCopyLink(targetLine, targetRow?.timestampSeconds, e);
+              }}
               className="inline-flex items-center gap-1.5 rounded border border-cyan-500/60 bg-cyan-900/50 px-2.5 py-1 text-xs font-medium text-cyan-100 hover:bg-cyan-800/80 hover:text-white transition-colors"
               title={`行 #${targetLine} への共有リンク (URL) をコピー`}
             >
@@ -829,7 +852,14 @@ export default function LogTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/40 font-mono">
-            {rows.map((row) => {
+            {paddingTop > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={7} style={{ height: `${paddingTop}px`, padding: 0, border: 0 }} />
+              </tr>
+            )}
+            {virtualItems.map((virtualRow) => {
+              const row = rows[virtualRow.index];
+              if (!row) return null;
               const isSelected = targetLine !== null && targetLine !== undefined && row.lineNumber === targetLine;
               const isContextCenter = contextTargetLine === row.lineNumber;
               const style = LEVEL_STYLES[row.level] ?? LEVEL_STYLES.INFO;
@@ -837,8 +867,10 @@ export default function LogTable({
               return (
                 <tr
                   key={row.lineNumber}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
                   id={`log-row-${row.lineNumber}`}
-                  onClick={() => onSelectLine?.(row.lineNumber)}
+                  onClick={() => onSelectLine?.(row.lineNumber, row.timestampSeconds)}
                   className={`group cursor-pointer transition-colors ${style.rowBorder ?? ''} ${
                     isContextCenter
                       ? 'bg-cyan-950/80 border-cyan-400 ring-2 ring-inset ring-cyan-400 text-white'
@@ -901,7 +933,7 @@ export default function LogTable({
                       {/* Copy Link Button */}
                       <button
                         type="button"
-                        onClick={(e) => handleCopyLink(row.lineNumber, e)}
+                        onClick={(e) => handleCopyLink(row.lineNumber, row.timestampSeconds, e)}
                         className={`p-1 rounded transition-colors ${
                           copiedLinkLine === row.lineNumber
                             ? 'text-green-400 bg-green-950/40'
@@ -946,6 +978,11 @@ export default function LogTable({
                 </tr>
               );
             })}
+            {paddingBottom > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={7} style={{ height: `${paddingBottom}px`, padding: 0, border: 0 }} />
+              </tr>
+            )}
 
             {rows.length === 0 && (
               <tr>

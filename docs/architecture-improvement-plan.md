@@ -309,9 +309,9 @@ gantt
     URL 二重クエリバグ修正             :done, p1_4, after p1_3, 1d
 
     section Phase 2: UX & 性能強化
-    LogTable 仮想スクロール化         : p2_1, after p1_4, 4d
-    FpsChart タイムライン同期バー実装  : p2_2, after p2_1, 3d
-    フロントエンド コード分割 (lazy)    : p2_3, after p2_2, 2d
+    LogTable 仮想スクロール化         :done, p2_1, after p1_4, 4d
+    FpsChart タイムライン同期バー実装  :done, p2_2, after p2_1, 3d
+    フロントエンド コード分割 (lazy)    :done, p2_3, after p2_2, 2d
 
     section Phase 3: ストレージ保護 & 運用性
     ディスク容量監視 & クリーンアップ   : p3_1, after p2_3, 3d
@@ -344,16 +344,16 @@ gantt
   - [x] `useAppRouter.ts` の `buildUrl` およびパス構築ロジックを修正し、`?` の重複を防止
 
 ### Phase 2: パフォーマンス & UX 強化
-- [ ] **Task 2.1: LogTable の仮想スクロール対応**
-  - [ ] `@tanstack/react-virtual` を導入
-  - [ ] 2000 行以上のログでも 60fps で滑らかにスクロールできる構造へ改修
-- [ ] **Task 2.2: タイムライン同期エンジンの完成**
-  - [ ] `FpsChart` に `currentTime`（再生位置）の垂直 markLine を描画
-  - [ ] `FpsChart` クリック時に動画再生位置を同期シークするコールバックを実装
-  - [ ] `MemoryChart` の X 軸を経過時間ベースに変更
-- [ ] **Task 2.3: フロントエンドのコード分割 (Vite)**
-  - [ ] `ComparePage`, `TrendsPage`, `ECharts` 関連の `React.lazy()` 化
-  - [ ] 初期ロード JS サイズを 600KB 以下に削減
+- [x] **Task 2.1: LogTable の仮想スクロール対応**
+  - [x] `@tanstack/react-virtual` を導入
+  - [x] 2000 行以上のログでも 60fps で滑らかにスクロールできる構造へ改修
+- [x] **Task 2.2: タイムライン同期エンジンの完成**
+  - [x] `FpsChart` に `currentTime`（再生位置）の垂直 markLine を描画
+  - [x] `FpsChart` クリック時に動画再生位置を同期シークするコールバックを実装
+  - [x] `MemoryChart` の X 軸を経過時間ベースに変更
+- [x] **Task 2.3: フロントエンドのコード分割 (Vite)**
+  - [x] `ComparePage`, `TrendsPage`, `ECharts` 関連の `React.lazy()` 化
+  - [x] 初期ロード JS サイズを 600KB 以下に削減
 
 ### Phase 3: ストレージ保護 & 運用性向上
 - [ ] **Task 3.1: ディスク容量クォータ & 自動クリーンアップ**

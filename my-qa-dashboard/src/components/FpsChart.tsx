@@ -1,10 +1,12 @@
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { FpsMetric } from '../types';
 
 interface Props {
   data: FpsMetric[];
   isFullscreen?: boolean;
+  currentTime?: number;
+  onSeek?: (time: number) => void;
 }
 
 const SERIES: { key: keyof FpsMetric; name: string; color: string }[] = [
@@ -15,12 +17,37 @@ const SERIES: { key: keyof FpsMetric; name: string; color: string }[] = [
   { key: 'RHIThreadTime', name: 'RHIThreadTime', color: '#34d399' },
 ];
 
-function FpsChart({ data, isFullscreen = false }: Props) {
+function FpsChart({ data, isFullscreen = false, currentTime, onSeek }: Props) {
   // ElapsedTime is the shared x-axis; PersistentLevel is looked up per-point
   // for the tooltip rather than plotted as its own series.
   const option = useMemo(() => {
     const levelByElapsed = new Map(data.map((d) => [d.ElapsedTime, d.PersistentLevel]));
     const seriesData = SERIES.map(({ key }) => data.map((d) => [d.ElapsedTime, d[key] as number]));
+
+    const markLineData: {
+      yAxis?: number;
+      xAxis?: number;
+      lineStyle?: { color: string; width?: number; type?: 'dashed' | 'solid' };
+      label?: { formatter: string; color: string; position?: 'insideEndTop' | 'end' };
+    }[] = [
+      {
+        yAxis: 1000 / 30,
+        lineStyle: { color: '#ef4444', type: 'dashed' },
+        label: { formatter: '30fps (33.3ms)', color: '#ef4444' },
+      },
+    ];
+
+    if (currentTime !== undefined && currentTime !== null && !isNaN(currentTime)) {
+      markLineData.push({
+        xAxis: currentTime,
+        lineStyle: { color: '#22d3ee', width: 2, type: 'solid' },
+        label: {
+          formatter: `再生位置: ${currentTime.toFixed(1)}s`,
+          color: '#22d3ee',
+          position: 'insideEndTop',
+        },
+      });
+    }
 
     return {
       backgroundColor: 'transparent',
@@ -74,21 +101,52 @@ function FpsChart({ data, isFullscreen = false }: Props) {
               markLine: {
                 silent: true,
                 symbol: 'none',
-                lineStyle: { color: '#ef4444', type: 'dashed' },
-                label: { formatter: '30fps (33.3ms)', color: '#ef4444' },
-                data: [{ yAxis: 1000 / 30 }],
+                data: markLineData,
               },
             }
           : {}),
       })),
     };
-  }, [data]);
+  }, [data, currentTime]);
+
+  const handleChartReady = useCallback(
+    (instance: any) => {
+      const zr = instance.getZr();
+      zr.off('click');
+      zr.on('click', (params: any) => {
+        if (!onSeek) return;
+        const pointInPixel = [params.offsetX, params.offsetY];
+        if (instance.containPixel({ gridIndex: 0 }, pointInPixel)) {
+          const pointInGrid = instance.convertFromPixel({ gridIndex: 0 }, pointInPixel);
+          if (pointInGrid && typeof pointInGrid[0] === 'number') {
+            const seekTime = Math.max(0, Number(pointInGrid[0].toFixed(2)));
+            onSeek(seekTime);
+          }
+        }
+      });
+    },
+    [onSeek],
+  );
+
+  const onEvents = useMemo(
+    () => ({
+      click: (params: any) => {
+        if (!onSeek) return;
+        if (Array.isArray(params.value) && typeof params.value[0] === 'number') {
+          onSeek(Math.max(0, Number(params.value[0].toFixed(2))));
+        }
+      },
+    }),
+    [onSeek],
+  );
 
   return (
     <div className={isFullscreen ? 'flex-1 min-h-0 w-full' : 'w-full'}>
       <ReactECharts
         option={option}
         style={{ height: isFullscreen ? 'calc(100vh - 100px)' : 320, width: '100%' }}
+        onChartReady={handleChartReady}
+        onEvents={onEvents}
         notMerge
       />
     </div>

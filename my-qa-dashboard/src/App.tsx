@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import {
   Activity,
@@ -22,20 +22,22 @@ import {
 } from 'lucide-react';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useDuckDB, FPS_CSV_FILE, MEMORY_CSV_FILE } from './hooks/useDuckDB';
-import FpsChart from './components/FpsChart';
-import MemoryChart from './components/MemoryChart';
 import LogTable, { UE_LOG_TABLE } from './components/LogTable';
 import SearchPage from './components/SearchPage';
-import ComparePage from './components/ComparePage';
-import TrendsPage from './components/TrendsPage';
 import ArtifactsPanel from './components/ArtifactsPanel';
 import MediaViewer from './components/MediaViewer';
-import AccessKeyModal from './components/AccessKeyModal';
 import { useAppRouter } from './router';
 import { parseUeLogText } from './utils/ueLogParser';
 import { searchService } from './services';
 import type { TestRunSummary } from './services';
 import type { FpsMetric, MemoryMetric } from './types';
+
+// Code splitting: dynamically import heavy pages, charts, and modal
+const ComparePage = lazy(() => import('./components/ComparePage'));
+const TrendsPage = lazy(() => import('./components/TrendsPage'));
+const FpsChart = lazy(() => import('./components/FpsChart'));
+const MemoryChart = lazy(() => import('./components/MemoryChart'));
+const AccessKeyModal = lazy(() => import('./components/AccessKeyModal'));
 
 /** Virtual-FS name for a run's data file, keeping the source extension for DuckDB. */
 function runFileName(baseName: string, url: string): string {
@@ -100,6 +102,13 @@ export default function App() {
 
   const fpsReady = dataLoaded || fpsUploaded;
   const memoryReady = dataLoaded || memoryUploaded;
+
+  const maxDuration = useMemo(() => {
+    if (fpsData.length > 0) {
+      return fpsData[fpsData.length - 1].ElapsedTime;
+    }
+    return undefined;
+  }, [fpsData]);
 
   const loadRunData = useCallback(
     async (run: TestRunSummary) => {
@@ -281,8 +290,16 @@ export default function App() {
   );
 
   const handleSelectLine = useCallback(
-    (line: number | null) => {
-      updateQueryParams({ log: line ?? undefined }, true);
+    (line: number | null, timestamp?: number | null) => {
+      updateQueryParams(
+        {
+          log: line ?? undefined,
+          ...(timestamp !== null && timestamp !== undefined
+            ? { t: Number(timestamp.toFixed(2)) }
+            : {}),
+        },
+        true,
+      );
     },
     [updateQueryParams],
   );
@@ -425,30 +442,46 @@ export default function App() {
           onFilterChange={(filters) => updateQueryParams(filters, true)}
         />
       ) : route.name === 'trends' ? (
-        <TrendsPage
-          onOpenRun={(runId) => navigateToRun(runId)}
-          onCompareRuns={navigateToCompare}
-          initialFilters={{
-            testName: queryParams.testName,
-            platform: queryParams.platform,
-            gameVersion: queryParams.gameVersion,
-            range: queryParams.range,
-          }}
-          onFilterChange={(filters) => updateQueryParams(filters, true)}
-        />
-      ) : route.name === 'compare' && route.compareRunIds ? (
-        <ComparePage
-          runAId={route.compareRunIds[0]}
-          runBId={route.compareRunIds[1]}
-          onBackToSearch={navigateToSearch}
-          onSwapRuns={() =>
-            navigateToCompare(route.compareRunIds![1], route.compareRunIds![0])
+        <Suspense
+          fallback={
+            <div className="flex h-96 items-center justify-center text-slate-500">
+              <Loader2 className="animate-spin text-cyan-400" size={24} />
+            </div>
           }
-          loadRemoteFile={loadRemoteFile}
-          executeQuery={executeQuery}
-          duckDbStatus={status}
-          getShareableUrl={(ids) => getShareableUrl(ids)}
-        />
+        >
+          <TrendsPage
+            onOpenRun={(runId) => navigateToRun(runId)}
+            onCompareRuns={navigateToCompare}
+            initialFilters={{
+              testName: queryParams.testName,
+              platform: queryParams.platform,
+              gameVersion: queryParams.gameVersion,
+              range: queryParams.range,
+            }}
+            onFilterChange={(filters) => updateQueryParams(filters, true)}
+          />
+        </Suspense>
+      ) : route.name === 'compare' && route.compareRunIds ? (
+        <Suspense
+          fallback={
+            <div className="flex h-96 items-center justify-center text-slate-500">
+              <Loader2 className="animate-spin text-cyan-400" size={24} />
+            </div>
+          }
+        >
+          <ComparePage
+            runAId={route.compareRunIds[0]}
+            runBId={route.compareRunIds[1]}
+            onBackToSearch={navigateToSearch}
+            onSwapRuns={() =>
+              navigateToCompare(route.compareRunIds![1], route.compareRunIds![0])
+            }
+            loadRemoteFile={loadRemoteFile}
+            executeQuery={executeQuery}
+            duckDbStatus={status}
+            getShareableUrl={(ids) => getShareableUrl(ids)}
+          />
+        </Suspense>
       ) : (
         <main className="p-6 space-y-6">
           {/* Artifacts produced by the run */}
@@ -535,7 +568,20 @@ export default function App() {
                     <p className="mb-2 text-xs text-slate-500">{fpsFileName}</p>
                   )}
                   {fpsReady && fpsData.length > 0 ? (
-                    <FpsChart data={fpsData} isFullscreen={isFpsFullscreen} />
+                    <Suspense
+                      fallback={
+                        <div className="flex h-80 items-center justify-center text-slate-500">
+                          <Loader2 className="animate-spin text-cyan-400" size={20} />
+                        </div>
+                      }
+                    >
+                      <FpsChart
+                        data={fpsData}
+                        isFullscreen={isFpsFullscreen}
+                        currentTime={queryParams.t}
+                        onSeek={handleSeekTime}
+                      />
+                    </Suspense>
                   ) : (
                     <Placeholder
                       message={
@@ -617,7 +663,21 @@ export default function App() {
                     <p className="mb-2 text-xs text-slate-500">{memoryFileName}</p>
                   )}
                   {memoryReady && memoryData.length > 0 ? (
-                    <MemoryChart data={memoryData} isFullscreen={isMemoryFullscreen} />
+                    <Suspense
+                      fallback={
+                        <div className="flex h-80 items-center justify-center text-slate-500">
+                          <Loader2 className="animate-spin text-green-400" size={20} />
+                        </div>
+                      }
+                    >
+                      <MemoryChart
+                        data={memoryData}
+                        isFullscreen={isMemoryFullscreen}
+                        duration={maxDuration}
+                        currentTime={queryParams.t}
+                        onSeek={handleSeekTime}
+                      />
+                    </Suspense>
                   ) : (
                     <Placeholder
                       message={
@@ -666,7 +726,11 @@ export default function App() {
       )}
 
       {/* CLI API Key Management Modal */}
-      <AccessKeyModal isOpen={isKeyModalOpen} onClose={() => setIsKeyModalOpen(false)} />
+      {isKeyModalOpen && (
+        <Suspense fallback={null}>
+          <AccessKeyModal isOpen={isKeyModalOpen} onClose={() => setIsKeyModalOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -10,11 +10,12 @@
     "prebuild": "npm run copy:duckdb",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --experimental-strip-types scripts/test_log_analysis.ts && node --experimental-strip-types scripts/test_media_viewer.ts && node --experimental-strip-types scripts/test_router_params.ts && node --experimental-strip-types scripts/test_duckdb_queue.ts && node --experimental-strip-types scripts/test_trends.ts",
+    "test": "node --experimental-strip-types scripts/test_log_analysis.ts && node --experimental-strip-types scripts/test_media_viewer.ts && node --experimental-strip-types scripts/test_router_params.ts && node --experimental-strip-types scripts/test_duckdb_queue.ts && node --experimental-strip-types scripts/test_trends.ts && node --experimental-strip-types scripts/test_timeline_sync.ts",
     "preview": "vite preview"
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.33.1-dev57.0",
+    "@tanstack/react-virtual": "^3.14.10",
     "client-zip": "^2.5.0",
     "echarts": "^6.1.0",
     "echarts-for-react": "^3.0.6",
