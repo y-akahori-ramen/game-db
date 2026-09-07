@@ -214,10 +214,17 @@ export function useDuckDB() {
     await db.registerFileBuffer(name, buf);
   }, []);
 
+  /** Drop a file registered in DuckDB's virtual FS under `name`. */
+  const dropFile = useCallback(async (name: string) => {
+    const db = await getDuckDB();
+    await db.dropFile(name).catch(() => { });
+  }, []);
+
   return {
     status,
     error,
     loadRemoteFile,
+    dropFile,
     executeQuery,
     loadRowsAsTable,
     loadLocalCsvFile,

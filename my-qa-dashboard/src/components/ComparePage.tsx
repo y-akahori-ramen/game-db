@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -38,6 +38,7 @@ interface Props {
   onBackToSearch: () => void;
   onSwapRuns: () => void;
   loadRemoteFile: (name: string, url: string) => Promise<void>;
+  dropFile?: (name: string) => Promise<void>;
   executeQuery: <T>(sql: string) => Promise<T[]>;
   duckDbStatus: DuckDBStatus;
   getShareableUrl: (runIds: [string, string]) => string;
@@ -53,6 +54,7 @@ export default function ComparePage({
   onBackToSearch,
   onSwapRuns,
   loadRemoteFile,
+  dropFile,
   executeQuery,
   duckDbStatus,
   getShareableUrl,
@@ -68,82 +70,111 @@ export default function ComparePage({
   const [activeTab, setActiveTab] = useState<'fps' | 'memory' | 'artifacts'>('fps');
   const [copied, setCopied] = useState(false);
 
-  const loadData = useCallback(async () => {
+  useEffect(() => {
+    let cancelled = false;
+
     if (duckDbStatus !== 'ready') return;
+
     setLoading(true);
     setLoadError(null);
 
-    try {
-      const [summaryA, summaryB, loadedThresholds] = await Promise.all([
-        searchService.getRun(runAId),
-        searchService.getRun(runBId),
-        loadRegressionThresholds(),
-      ]);
-      setThresholds(loadedThresholds);
+    // Track registered temporary files for cleanup in finally
+    const filesToDrop: string[] = [];
 
-      if (!summaryA) throw new Error(`Run A (${runAId}) が見つかりませんでした。`);
-      if (!summaryB) throw new Error(`Run B (${runBId}) が見つかりませんでした。`);
-
-      setRunA(summaryA);
-      setRunB(summaryB);
-
-      const base = import.meta.env.BASE_URL;
-
-      // 1. Load and query FPS diff
-      let fpsDiffs: FpsDiffMetric[] = [];
-      if (summaryA.fpsDataUrl && summaryB.fpsDataUrl) {
-        const fileAName = `compare_${runAId}_fps.${getExt(summaryA.fpsDataUrl)}`;
-        const fileBName = `compare_${runBId}_fps.${getExt(summaryB.fpsDataUrl)}`;
-
-        await Promise.all([
-          loadRemoteFile(fileAName, `${base}${summaryA.fpsDataUrl}`),
-          loadRemoteFile(fileBName, `${base}${summaryB.fpsDataUrl}`),
+    async function loadData() {
+      try {
+        const [summaryA, summaryB, loadedThresholds] = await Promise.all([
+          searchService.getRun(runAId),
+          searchService.getRun(runBId),
+          loadRegressionThresholds(),
         ]);
+        if (cancelled) return;
 
-        fpsDiffs = await queryFpsComparison(executeQuery, fileAName, fileBName);
-        setFpsDiffData(fpsDiffs);
-      } else {
-        setFpsDiffData([]);
+        setThresholds(loadedThresholds);
+
+        if (!summaryA) throw new Error(`Run A (${runAId}) が見つかりませんでした。`);
+        if (!summaryB) throw new Error(`Run B (${runBId}) が見つかりませんでした。`);
+
+        setRunA(summaryA);
+        setRunB(summaryB);
+
+        const base = import.meta.env.BASE_URL;
+        // Unique session identifier to prevent file name collisions across concurrent renders or self-comparison
+        const session = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+        // 1. Load and query FPS diff
+        let fpsDiffs: FpsDiffMetric[] = [];
+        if (summaryA.fpsDataUrl && summaryB.fpsDataUrl) {
+          const fileAName = `compare_${runAId}_a_${session}.${getExt(summaryA.fpsDataUrl)}`;
+          const fileBName = `compare_${runBId}_b_${session}.${getExt(summaryB.fpsDataUrl)}`;
+          filesToDrop.push(fileAName, fileBName);
+
+          await Promise.all([
+            loadRemoteFile(fileAName, `${base}${summaryA.fpsDataUrl}`),
+            loadRemoteFile(fileBName, `${base}${summaryB.fpsDataUrl}`),
+          ]);
+          if (cancelled) return;
+
+          fpsDiffs = await queryFpsComparison(executeQuery, fileAName, fileBName);
+          if (cancelled) return;
+
+          setFpsDiffData(fpsDiffs);
+        } else {
+          setFpsDiffData([]);
+        }
+
+        // 2. Load and query Memory diff
+        let memoryResult: MemoryComparisonResult | null = null;
+        if (summaryA.memoryDataUrl && summaryB.memoryDataUrl) {
+          const memAName = `compare_${runAId}_mem_a_${session}.${getExt(summaryA.memoryDataUrl)}`;
+          const memBName = `compare_${runBId}_mem_b_${session}.${getExt(summaryB.memoryDataUrl)}`;
+          filesToDrop.push(memAName, memBName);
+
+          await Promise.all([
+            loadRemoteFile(memAName, `${base}${summaryA.memoryDataUrl}`),
+            loadRemoteFile(memBName, `${base}${summaryB.memoryDataUrl}`),
+          ]);
+          if (cancelled) return;
+
+          memoryResult = await queryMemoryComparison(executeQuery, memAName, memBName);
+          if (cancelled) return;
+
+          setMemoryDiffData(memoryResult);
+        } else {
+          setMemoryDiffData(null);
+        }
+
+        // 3. Compute high-level summary and regression evaluation with external thresholds
+        if (fpsDiffs.length > 0) {
+          const computedSummary = computeComparisonSummary(
+            fpsDiffs,
+            memoryResult ? memoryResult.peakDiffs : [],
+            loadedThresholds,
+          );
+          setSummary(computedSummary);
+        } else {
+          setSummary(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (dropFile && filesToDrop.length > 0) {
+          await Promise.all(filesToDrop.map((name) => dropFile(name)));
+        }
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-
-      // 2. Load and query Memory diff
-      let memoryResult: MemoryComparisonResult | null = null;
-      if (summaryA.memoryDataUrl && summaryB.memoryDataUrl) {
-        const memAName = `compare_${runAId}_mem.${getExt(summaryA.memoryDataUrl)}`;
-        const memBName = `compare_${runBId}_mem.${getExt(summaryB.memoryDataUrl)}`;
-
-        await Promise.all([
-          loadRemoteFile(memAName, `${base}${summaryA.memoryDataUrl}`),
-          loadRemoteFile(memBName, `${base}${summaryB.memoryDataUrl}`),
-        ]);
-
-        memoryResult = await queryMemoryComparison(executeQuery, memAName, memBName);
-        setMemoryDiffData(memoryResult);
-      } else {
-        setMemoryDiffData(null);
-      }
-
-      // 3. Compute high-level summary and regression evaluation with external thresholds
-      if (fpsDiffs.length > 0) {
-        const computedSummary = computeComparisonSummary(
-          fpsDiffs,
-          memoryResult ? memoryResult.peakDiffs : [],
-          loadedThresholds,
-        );
-        setSummary(computedSummary);
-      } else {
-        setSummary(null);
-      }
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
     }
-  }, [duckDbStatus, runAId, runBId, loadRemoteFile, executeQuery]);
 
-  useEffect(() => {
     void loadData();
-  }, [loadData]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [duckDbStatus, runAId, runBId, loadRemoteFile, dropFile, executeQuery]);
 
   const handleCopyLink = async () => {
     const url = getShareableUrl([runAId, runBId]);

@@ -62,8 +62,15 @@ export default function App() {
     getShareableUrl,
   } = useAppRouter();
 
-  const { status, error, loadRemoteFile, executeQuery, loadRowsAsTable, loadLocalCsvFile } =
-    useDuckDB();
+  const {
+    status,
+    error,
+    loadRemoteFile,
+    dropFile,
+    executeQuery,
+    loadRowsAsTable,
+    loadLocalCsvFile,
+  } = useDuckDB();
 
   const [selectedRun, setSelectedRun] = useState<TestRunSummary | null>(null);
   const [fpsData, setFpsData] = useState<FpsMetric[]>([]);
@@ -484,6 +491,7 @@ export default function App() {
               navigateToCompare(route.compareRunIds![1], route.compareRunIds![0])
             }
             loadRemoteFile={loadRemoteFile}
+            dropFile={dropFile}
             executeQuery={executeQuery}
             duckDbStatus={status}
             getShareableUrl={(ids) => getShareableUrl(ids)}
